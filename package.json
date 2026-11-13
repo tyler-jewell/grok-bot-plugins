@@ -5,9 +5,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "types": "wrangler types",
-    "check": "wrangler types && tsc --noEmit",
+    "check": "node scripts/embed-skills.mjs --check && wrangler types && tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "embed-skills": "node scripts/embed-skills.mjs --write"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.8.2",

@@ -1,5 +1,6 @@
 import { GroupFullError, GroupGoneError, GroupNotFoundError, SkiGroup, UnauthorizedError, type HeartbeatIn } from "./group";
 import { bearer, errorResponse, json, publicBase, securityHeaders } from "./errors";
+import { runHealthcheck } from "./health";
 import { handleMcp } from "./mcp";
 import { clientIp, hashIp, rateLimit } from "./rate-limit";
 import { randomToken } from "./tokens";
@@ -38,7 +39,8 @@ export default {
       }
 
       if (path === "/health") {
-        return withSecurity(json({ ok: true, service: "skiherd-groups" }));
+        const report = await runHealthcheck(env, request);
+        return withSecurity(json(report, report.ok ? 200 : 503));
       }
 
       if (path === "/api/groups" && request.method === "POST") {
@@ -132,10 +134,22 @@ export default {
           return withSecurity(json(await group.suggestNewRoute(token)));
         }
 
+        if (action === "leave" && (request.method === "POST" || request.method === "DELETE")) {
+          const token = bearer(request);
+          if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
+          return withSecurity(json(await group.leave(token)));
+        }
+
         if (!action && request.method === "GET") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
           return withSecurity(json(await group.info()));
+        }
+
+        if (!action && request.method === "DELETE") {
+          const token = bearer(request);
+          if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
+          return withSecurity(json(await group.deleteGroup(token)));
         }
 
         return withSecurity(json({ error: "not found" }, 404));
@@ -162,7 +176,7 @@ export default {
       const message = err instanceof Error ? err.message : "";
       if (name === "GroupGoneError" || message === "group expired") return withSecurity(errorResponse(new GroupGoneError()));
       if (name === "GroupNotFoundError" || message === "group not found") return withSecurity(errorResponse(new GroupNotFoundError()));
-      if (name === "UnauthorizedError" || message === "unauthorized" || message.startsWith("invite") || message === "invalid invite") {
+      if (name === "UnauthorizedError" || message === "unauthorized" || message.startsWith("invite") || message === "invalid invite" || message.includes("only the creator")) {
         return withSecurity(errorResponse(new UnauthorizedError(message || "unauthorized")));
       }
       if (name === "GroupFullError" || message.includes("group is full")) return withSecurity(errorResponse(new GroupFullError()));
