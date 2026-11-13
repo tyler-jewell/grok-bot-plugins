@@ -12,7 +12,7 @@ Public Grok Bot plugins and the SkiHerd group-map Worker. Grok Bot does this wor
 
 - Production, when Tyler approves a deploy, is Tyler's **personal** Cloudflare account, Wrangler profile `personal`, `cf` CLI from `~/cf`.
 - Worker name is `skiherd-groups` (not `skiherd`, which is a different app on the same account).
-- Hostname is a `jewell-labs.com` subdomain (`skiherd.jewell-labs.com`). Do not put `account_id` or custom-domain `routes` in `wrangler.jsonc`.
+- Hostname is `skiherd.jewell-labs.com`. Keep the `custom_domain` route for that hostname in `wrangler.jsonc` so deploys do not drop it. Do not put `account_id` in `wrangler.jsonc`.
 - Users of the plugin do not need a Cloudflare account.
 
 ## Safety
@@ -38,3 +38,5 @@ Public Grok Bot plugins and the SkiHerd group-map Worker. Grok Bot does this wor
 - CI actions must be SHA-pinned.
 - For HTML/CSS/JS, follow `npx -y modern-web-guidance@1.0.0`.
 - `npm run check` and `npm test` must pass before a PR is ready.
+- Exactly two skills, source of truth in `plugins/skiherd/skills/{healthcheck,setup}/SKILL.md`. The Worker serves the same text as MCP prompts, `skiherd://skills/...` resources, and the `get_skill` tool. `scripts/embed-skills.mjs --check` (via `npm run check`) fails if `src/skills.generated.ts` drifts from those files.
+- Any agent that only adds the MCP URL must still be able to run healthcheck, then follow the setup skill, before acting on a group.

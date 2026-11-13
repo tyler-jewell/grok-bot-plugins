@@ -131,6 +131,7 @@ export class SkiGroup extends DurableObject<Env> {
     this.setMeta("created_at", String(created));
     this.setMeta("expires_at", String(expires));
     this.setMeta("group_token", groupToken);
+    this.setMeta("host_id", memberId);
     this.ctx.storage.sql.exec(
       "INSERT INTO members (id, display_name, color, token_hash, joined_at) VALUES (?, ?, ?, ?, ?)",
       memberId,
@@ -390,7 +391,51 @@ export class SkiGroup extends DurableObject<Env> {
     };
   }
 
+  async leave(memberToken: string): Promise<{ left: true; group_deleted: boolean }> {
+    const member = await this.authMember(memberToken);
+    this.ctx.storage.sql.exec("DELETE FROM heartbeats WHERE member_id = ?", member.id);
+    this.ctx.storage.sql.exec("DELETE FROM members WHERE id = ?", member.id);
+    const remaining = this.ctx.storage.sql.exec<{ c: number }>("SELECT COUNT(*) AS c FROM members").one().c;
+    this.broadcast({ type: "left", member_id: member.id });
+    if (remaining <= 0) {
+      await this.ctx.storage.deleteAll();
+      return { left: true, group_deleted: true };
+    }
+    return { left: true, group_deleted: false };
+  }
+
+  async deleteGroup(memberToken: string): Promise<{ deleted: true }> {
+    const member = await this.authMember(memberToken);
+    const hostId = this.meta("host_id");
+    if (!hostId || member.id !== hostId) throw new UnauthorizedError("only the creator can delete this group");
+    await this.ctx.storage.deleteAll();
+    return { deleted: true };
+  }
+
+  /**
+   * Ephemeral probe used by healthcheck. Only allowed on objects whose name
+   * starts with __skiherd_health__. Writes, reads, schedules an alarm, then
+   * wipes all storage so no user data is kept.
+   */
+  async healthProbe(): Promise<{ storage_write: boolean; storage_read: boolean; alarm_scheduled: boolean }> {
+    const name = this.ctx.id.name ?? "";
+    if (!name.startsWith("__skiherd_health__")) {
+      throw new Error("health probe is only allowed on ephemeral health objects");
+    }
+    const marker = `probe:${Date.now()}`;
+    this.setMeta("health_probe", marker);
+    const storage_write = true;
+    const storage_read = this.meta("health_probe") === marker;
+    const when = Date.now() + 60_000;
+    await this.ctx.storage.setAlarm(when);
+    const alarm = await this.ctx.storage.getAlarm();
+    const alarm_scheduled = typeof alarm === "number" && alarm >= when - 5_000;
+    await this.ctx.storage.deleteAll();
+    return { storage_write, storage_read, alarm_scheduled };
+  }
+
   async sessionWebSocket(request: Request, memberToken: string): Promise<Response> {
+
     await this.authMember(memberToken);
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);

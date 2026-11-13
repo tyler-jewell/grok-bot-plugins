@@ -21,8 +21,12 @@
     "PUBLIC_BASE_URL": "https://skiherd.jewell-labs.com",
     "GROUP_TTL_MS": "86400000",
     "MAX_GROUP_MEMBERS": "10",
-    "CREATE_GROUP_PER_IP_PER_HOUR": "5"
+    "CREATE_GROUP_PER_IP_PER_HOUR": "5",
+    "GIT_SHA": "local"
   },
+  "routes": [
+    { "pattern": "skiherd.jewell-labs.com", "custom_domain": true }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "GROUP", "class_name": "SkiGroup" }

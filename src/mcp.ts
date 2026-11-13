@@ -8,7 +8,9 @@ import {
   UnauthorizedError,
   type HeartbeatIn,
 } from "./group";
+import { runHealthcheck } from "./health";
 import { clientIp, hashIp, rateLimit } from "./rate-limit";
+import { MCP_INSTRUCTIONS, SKILL_NAMES, SKILLS, type SkillName } from "./skills.generated";
 import { randomToken } from "./tokens";
 
 /**
@@ -52,16 +54,76 @@ function urls(env: Env, groupToken: string, inviteToken?: string) {
   };
 }
 
+const SKILL_TITLES: Record<SkillName, { title: string; description: string }> = {
+  healthcheck: {
+    title: "SkiHerd healthcheck skill",
+    description: "Verify the SkiHerd MCP server and its backend are up before acting on a group. Run this first.",
+  },
+  setup: {
+    title: "SkiHerd setup skill",
+    description:
+      "Walk a human through SkiHerd after healthcheck passes: consent, location once, create or join a group, first heartbeat, map link, and a 5-minute cadence.",
+  },
+};
+
+function registerSkills(server: McpServer) {
+  for (const name of SKILL_NAMES) {
+    const meta = SKILL_TITLES[name];
+    const text = SKILLS[name];
+    server.registerPrompt(name, { title: meta.title, description: meta.description }, () => ({
+      messages: [{ role: "user" as const, content: { type: "text" as const, text } }],
+    }));
+    server.registerResource(
+      name,
+      `skiherd://skills/${name}`,
+      { title: meta.title, mimeType: "text/markdown" },
+      async (uri) => ({ contents: [{ uri: uri.href, text }] }),
+    );
+  }
+}
+
 export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response {
   const handler = createMcpHandler(
     () => {
-      const server = new McpServer({ name: "skiherd", version: "0.1.0" });
+      const server = new McpServer({ name: "skiherd", version: "0.2.0" }, { instructions: MCP_INSTRUCTIONS });
+
+      registerSkills(server);
+
+      server.registerTool(
+        "healthcheck",
+        {
+          description:
+            "Check that the SkiHerd Worker, Durable Objects, storage, alarms, map site, OSM data, and rate limiter are up. Call this first, every session, before creating or joining a group. Returns structured pass/fail per component and advice on failure.",
+          inputSchema: {},
+        },
+        async () => {
+          try {
+            return toolText(await runHealthcheck(env, request));
+          } catch (err) {
+            return toolError(err);
+          }
+        },
+      );
+
+      server.registerTool(
+        "get_skill",
+        {
+          description:
+            "Return a SkiHerd skill as markdown. Use this if your client does not support MCP prompts or resources. Skills are also available as prompts (healthcheck, setup) and as skiherd://skills/{name} resources.",
+          inputSchema: {
+            name: z.enum(["healthcheck", "setup"]).describe("Which skill to return."),
+          },
+        },
+        async ({ name }) => ({
+          content: [{ type: "text" as const, text: SKILLS[name] }],
+        }),
+      );
 
       server.registerTool(
         "create_group",
         {
           description:
-            "Create a SkiHerd group. Returns a group token, a host member token, and a map URL. The group and all of its data are deleted automatically 24 hours after creation. No personal data is required. Cap of 10 members.",
+            "Create a SkiHerd group. Returns a group token, a host member token, and a map URL. The group and all of its data are deleted automatically 24 hours after creation. No personal data is required. Cap of 10 members. Run healthcheck first.",
           inputSchema: { host_name: z.string().min(1).max(40).describe("Display name for the host (no email or phone).") },
         },
         async ({ host_name }) => {
@@ -225,6 +287,38 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         async ({ group_token, member_token }) => {
           try {
             return toolText(await stub(env, group_token).suggestNewRoute(member_token));
+          } catch (err) {
+            return toolError(err);
+          }
+        },
+      );
+
+      server.registerTool(
+        "leave_group",
+        {
+          description:
+            "Leave a SkiHerd group as the authenticated member. Removes that member and their heartbeats. If they were the last member, the group is deleted immediately.",
+          inputSchema: { group_token: z.string(), member_token: z.string() },
+        },
+        async ({ group_token, member_token }) => {
+          try {
+            return toolText(await stub(env, group_token).leave(member_token));
+          } catch (err) {
+            return toolError(err);
+          }
+        },
+      );
+
+      server.registerTool(
+        "delete_group",
+        {
+          description:
+            "Delete a SkiHerd group now, wiping all of its storage. Only the creator (still a member) can do this. If the creator already left, the group lives until the 24-hour self-delete alarm.",
+          inputSchema: { group_token: z.string(), member_token: z.string() },
+        },
+        async ({ group_token, member_token }) => {
+          try {
+            return toolText(await stub(env, group_token).deleteGroup(member_token));
           } catch (err) {
             return toolError(err);
           }

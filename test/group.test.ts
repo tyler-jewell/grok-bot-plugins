@@ -174,3 +174,87 @@ describe("HTTP worker", () => {
     expect(statuses).toContain(429);
   });
 });
+
+describe("leave and delete", () => {
+  it("lets a member leave, refuses delete from a non-creator, and lets the creator delete now", async () => {
+    const group = stub("test-delete-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const invite = await group.createInvite(host.member_token, { max_uses: 1 });
+    const guest = await group.join(invite.invite_token, "Alex");
+    expect((await group.info()).member_count).toBe(2);
+
+    const denied = await runInDurableObject(group, async (inst: SkiGroup) => {
+      try {
+        await inst.deleteGroup(guest.member_token);
+        return { threw: false, message: "" };
+      } catch (err) {
+        return { threw: true, message: err instanceof Error ? err.message : String(err) };
+      }
+    });
+    expect(denied.threw).toBe(true);
+    expect(denied.message).toMatch(/creator/i);
+
+    const left = await group.leave(guest.member_token);
+    expect(left).toEqual({ left: true, group_deleted: false });
+    expect((await group.info()).member_count).toBe(1);
+
+    const deleted = await group.deleteGroup(host.member_token);
+    expect(deleted).toEqual({ deleted: true });
+    await evictDurableObject(group);
+    await runInDurableObject(group, async (inst: SkiGroup) => {
+      await expect(inst.info()).rejects.toThrow(/not found/i);
+    });
+  });
+
+  it("deletes the group when the last member leaves", async () => {
+    const group = stub("test-last-leave-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const left = await group.leave(host.member_token);
+    expect(left).toEqual({ left: true, group_deleted: true });
+    await evictDurableObject(group);
+    await runInDurableObject(group, async (inst: SkiGroup) => {
+      await expect(inst.info()).rejects.toThrow(/not found/i);
+    });
+  });
+
+  it("supports leave and delete over HTTP", async () => {
+    const created = await SELF.fetch("https://skiherd.jewell-labs.com/api/groups", {
+      method: "POST",
+      headers: { "content-type": "application/json", "CF-Connecting-IP": "203.0.113.40" },
+      body: JSON.stringify({ host_name: "Tyler" }),
+    });
+    expect(created.status).toBe(201);
+    const body = await created.json<{ group_token: string; member_token: string }>();
+    const inviteRes = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}/invites`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${body.member_token}`, "content-type": "application/json" },
+      body: JSON.stringify({ max_uses: 1 }),
+    });
+    const invite = await inviteRes.json<{ invite_token: string }>();
+    const joinedRes = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}/join`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ invite_token: invite.invite_token, display_name: "Alex" }),
+    });
+    const guest = await joinedRes.json<{ member_token: string }>();
+    const forbidden = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${guest.member_token}` },
+    });
+    expect(forbidden.status).toBe(401);
+
+    const leave = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}/leave`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${guest.member_token}` },
+    });
+    expect(leave.status).toBe(200);
+    expect(await leave.json()).toEqual({ left: true, group_deleted: false });
+
+    const del = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${body.member_token}` },
+    });
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ deleted: true });
+  });
+});
