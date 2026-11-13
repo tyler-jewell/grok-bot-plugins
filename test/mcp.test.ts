@@ -155,7 +155,7 @@ describe("MCP self-description", () => {
 });
 
 describe("MCP leave and delete", () => {
-  it("lets a member leave and lets the creator delete the group", async () => {
+  it("lets any current member delete the group and records who deleted it", async () => {
     const sid = await session();
     const created = toolJson(
       (
@@ -164,7 +164,11 @@ describe("MCP leave and delete", () => {
           sid,
         )
       ).message,
-    ) as { group_token: string; member_token: string };
+    ) as { group_token: string; member_token: string; member_map_url?: string; host_url?: string };
+    expect(created.member_map_url).toContain("#t=");
+    expect(created.host_url).not.toContain("member_token");
+    expect(created.member_map_url).not.toContain("?member_token=");
+
 
     const invite = toolJson(
       (
@@ -200,43 +204,6 @@ describe("MCP leave and delete", () => {
       ).message,
     ) as { member_token: string };
 
-    const denied = resultOf(
-      (
-        await mcp(
-          {
-            jsonrpc: "2.0",
-            id: 33,
-            method: "tools/call",
-            params: {
-              name: "delete_group",
-              arguments: { group_token: created.group_token, member_token: joined.member_token },
-            },
-          },
-          sid,
-        )
-      ).message,
-    ) as { isError?: boolean; content?: Array<{ text?: string }> };
-    expect(denied.isError).toBe(true);
-    expect(denied.content?.[0]?.text).toMatch(/unauthorized|creator/i);
-
-    const left = toolJson(
-      (
-        await mcp(
-          {
-            jsonrpc: "2.0",
-            id: 34,
-            method: "tools/call",
-            params: {
-              name: "leave_group",
-              arguments: { group_token: created.group_token, member_token: joined.member_token },
-            },
-          },
-          sid,
-        )
-      ).message,
-    ) as { left: boolean; group_deleted: boolean };
-    expect(left).toEqual({ left: true, group_deleted: false });
-
     const deleted = toolJson(
       (
         await mcp(
@@ -246,14 +213,15 @@ describe("MCP leave and delete", () => {
             method: "tools/call",
             params: {
               name: "delete_group",
-              arguments: { group_token: created.group_token, member_token: created.member_token },
+              arguments: { group_token: created.group_token, member_token: joined.member_token },
             },
           },
           sid,
         )
       ).message,
-    ) as { deleted: boolean };
-    expect(deleted).toEqual({ deleted: true });
+    ) as { deleted: boolean; deleted_by?: { name: string; member_id: string } };
+    expect(deleted).toMatchObject({ deleted: true, deleted_by: { name: "Alex" } });
+    expect(deleted.deleted_by?.member_id).toBeTruthy();
 
     const gone = resultOf(
       (

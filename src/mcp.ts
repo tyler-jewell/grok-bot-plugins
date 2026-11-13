@@ -52,12 +52,13 @@ function stub(env: Env, groupToken: string) {
   return env.GROUP.get(env.GROUP.idFromName(groupToken));
 }
 
-function urls(env: Env, groupToken: string, inviteToken?: string) {
+function urls(env: Env, groupToken: string, opts?: { inviteToken?: string; memberToken?: string }) {
   const base = env.PUBLIC_BASE_URL.replace(/\/$/, "");
   return {
     host_url: `${base}/g/${groupToken}`,
     mcp_url: `${base}/mcp`,
-    invite_url: inviteToken ? `${base}/g/${groupToken}?invite=${inviteToken}` : undefined,
+    invite_url: opts?.inviteToken ? `${base}/g/${groupToken}?invite=${opts.inviteToken}` : undefined,
+    member_map_url: opts?.memberToken ? `${base}/g/${groupToken}#t=${opts.memberToken}` : undefined,
   };
 }
 
@@ -143,7 +144,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
             const created = await stub(env, groupToken).create(host_name);
             return toolText({
               ...created,
-              ...urls(env, created.group_token),
+              ...urls(env, created.group_token, { memberToken: created.member_token }),
               note: "Hosted free by Tyler Jewell. Bare minimum. No data is kept. Everything in this group is deleted 24 hours after creation. Do not share member tokens. This service is not affiliated with Winter Park Resort.",
             });
           } catch (err) {
@@ -167,7 +168,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         async ({ group_token, member_token, ttl_ms, max_uses }) => {
           try {
             const inv = await stub(env, group_token).createInvite(member_token, { ttl_ms, max_uses });
-            return toolText({ ...inv, ...urls(env, group_token, inv.invite_token) });
+            return toolText({ ...inv, ...urls(env, group_token, { inviteToken: inv.invite_token }) });
           } catch (err) {
             return toolError(err);
           }
@@ -187,7 +188,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         async ({ group_token, invite_token, display_name }) => {
           try {
             const joined = await stub(env, group_token).join(invite_token, display_name);
-            return toolText({ ...joined, group_token, ...urls(env, group_token) });
+            return toolText({ ...joined, group_token, ...urls(env, group_token, { memberToken: joined.member_token }) });
           } catch (err) {
             return toolError(err);
           }
@@ -320,7 +321,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         "delete_group",
         {
           description:
-            "Delete a SkiHerd group now, wiping all of its storage. Only the creator (still a member) can do this. If the creator already left, the group lives until the 24-hour self-delete alarm.",
+            "Delete a SkiHerd group now, wiping all of its storage. Any current member can do this. The response and the gone event record who deleted the group.",
           inputSchema: { group_token: z.string(), member_token: z.string() },
         },
         async ({ group_token, member_token }) => {

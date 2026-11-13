@@ -39,7 +39,7 @@ Say this in your own words, then wait for a clear yes:
 
 - Hosted free by Tyler Jewell. Bare minimum. No data is kept after the group ends.
 - The group stores a display name, unguessable tokens, and the locations that get posted.
-- Everything in the group is deleted automatically 24 hours after the group is created. The creator can also delete the group now; a member can leave.
+- Everything in the group is deleted automatically 24 hours after the group is created. Any current member can also delete the group now; a member can leave.
 - Do not share member tokens. Share the map link or an invite link instead.
 - This is not for tracking anyone without their consent, and it is not directed at children under 13.
 
@@ -56,9 +56,10 @@ If you cannot get a location, stop and tell the human you cannot place them on t
 
 ## 5. Create or join a group
 
-- To start a group: call `create_group` with the display name. Save the returned `group_token`, `member_token`, `host_url`, and `expires_at`. Do not paste the member token into the chat unless the human asks for it.
-- To join: call `join_group` with the group token, invite token, and display name. Save the member token and map URL the same way.
-- If the human is the host and wants friends on the map, call `create_invite` and share the **invite URL**, not the member token.
+- To start a group: call `create_group` with the display name. Save the returned `group_token`, `member_token`, `member_map_url`, `host_url`, and `expires_at`. Do not paste the member token into the chat unless the human asks for it.
+- To join: call `join_group` with the group token, invite token, and display name. Save the member token and `member_map_url` the same way.
+- Send this human their `member_map_url` (it uses a `#t=` fragment). The map page reads the token, stores it in session storage, and strips the fragment so it is not sent to the server or left in the address bar. Never put a member token in a query string, and never share `member_map_url` as a group-wide link.
+- If the human is the host and wants friends on the map, call `create_invite` and share the **invite URL** or the token-free `host_url`, not the member token or `member_map_url`.
 
 Cap is 10 people. If the tool says the group is full or the invite is expired or already used, stop and tell the human.
 
@@ -68,14 +69,14 @@ Call `post_heartbeat` with the group token, member token, and one point (timesta
 
 ## 7. Share the map link and verify
 
-Send the human the `host_url` (map link). Then call `group_map` and confirm this human appears with a fix. If they do not, stop and tell the human that the first heartbeat did not show up.
+Send the human their `member_map_url` so they can open the live map. Then call `group_map` and confirm this human appears with a fix. If they do not, stop and tell the human that the first heartbeat did not show up.
 
 ## 8. Offer a 5-minute heartbeat cadence
 
 - **Grok Bot:** offer to set a routine that runs every 5 minutes, reads location (reusing the permission already granted), and calls `post_heartbeat`. The platform minimum interval is 5 minutes. Be clear that 5-minute snapshots undercount ski stats; a denser on-device track uploaded in batches is better when available. Do not start the routine unless the human agrees.
 - **Other agents (Claude, ChatGPT, and anyone else):** explain that they should post a heartbeat about every 5 minutes while the human is skiing — using whatever scheduler, plugin, or manual prompt they have — and that the backend is the same. Do not pretend you can install a Grok Bot routine in another product.
 
-Remind them the group, including heartbeats, is deleted 24 hours after creation (or sooner if the creator deletes it). A member who wants out can use `leave_group`. The creator can use `delete_group`.
+Remind them the group, including heartbeats, is deleted 24 hours after creation (or sooner if any current member deletes it). A member who wants out can use `leave_group`. Any current member can use `delete_group`; the response records who deleted the group.
 
 ## Tools you may use after setup
 

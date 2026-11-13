@@ -20,9 +20,9 @@ form?.addEventListener("submit", async (event) => {
       button.disabled = false;
       return;
     }
-    const url = new URL(data.host_url, location.origin);
-    url.searchParams.set("member_token", data.member_token);
-    location.assign(`${url.pathname}${url.search}`);
+    const target = data.member_map_url || `${data.host_url}#t=${encodeURIComponent(data.member_token)}`;
+    const url = new URL(target, location.origin);
+    location.assign(`${url.pathname}${url.search}${url.hash}`);
   } catch {
     status.textContent = "Network error. Try again.";
     button.disabled = false;

@@ -1,5 +1,5 @@
 import { GroupFullError, GroupGoneError, GroupNotFoundError, SkiGroup, UnauthorizedError, type HeartbeatIn } from "./group";
-import { bearer, errorResponse, json, publicBase, securityHeaders } from "./errors";
+import { bearer, errorResponse, json, publicBase, queryHasMemberToken, queryTokenRejected, securityHeaders } from "./errors";
 import { runHealthcheck } from "./health";
 import { handleMcp } from "./mcp";
 import { clientIp, hashIp, rateLimit } from "./rate-limit";
@@ -55,6 +55,7 @@ export default {
           json({
             ...created,
             host_url: `${base}/g/${created.group_token}`,
+            member_map_url: `${base}/g/${created.group_token}#t=${created.member_token}`,
             mcp_url: `${base}/mcp`,
           }, 201),
         );
@@ -62,6 +63,7 @@ export default {
 
       const api = path.match(/^\/api\/groups\/([^/]+)(?:\/([^/]+))?$/);
       if (api) {
+        if (queryHasMemberToken(request)) return withSecurity(queryTokenRejected());
         const groupToken = decodeURIComponent(api[1]);
         const action = api[2] ?? "";
         const group = stub(env, groupToken);
@@ -87,7 +89,7 @@ export default {
           if (!body.invite_token) return withSecurity(json({ error: "invite_token required" }, 400));
           const joined = await group.join(body.invite_token, body.display_name ?? "Skier");
           const base = publicBase(request, env);
-          return withSecurity(json({ ...joined, group_token: groupToken, host_url: `${base}/g/${groupToken}` }, 201));
+          return withSecurity(json({ ...joined, group_token: groupToken, host_url: `${base}/g/${groupToken}`, member_map_url: `${base}/g/${groupToken}#t=${joined.member_token}` }, 201));
         }
 
         if (action === "heartbeats" && request.method === "POST") {
@@ -157,10 +159,9 @@ export default {
 
       const ws = path.match(/^\/g\/([^/]+)\/ws$/);
       if (ws && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        if (queryHasMemberToken(request)) return withSecurity(queryTokenRejected());
         const groupToken = decodeURIComponent(ws[1]);
-        const token = url.searchParams.get("member_token") ?? bearer(request);
-        if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-        return stub(env, groupToken).sessionWebSocket(request, token);
+        return stub(env, groupToken).sessionWebSocket(request);
       }
 
       if (path.startsWith("/g/")) {

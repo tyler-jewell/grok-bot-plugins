@@ -1,8 +1,34 @@
 const pathParts = location.pathname.split("/").filter(Boolean);
 const groupToken = pathParts[0] === "g" ? pathParts[1] : "";
 const params = new URLSearchParams(location.search);
-let memberToken = params.get("member_token") || sessionStorage.getItem(`skiherd:member:${groupToken}`) || "";
 const inviteToken = params.get("invite") || "";
+const queryHadMemberToken = params.has("member_token");
+
+function fragmentToken() {
+  const raw = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
+  return new URLSearchParams(raw).get("t") || "";
+}
+
+function stripSensitiveFromUrl() {
+  const clean = new URL(location.href);
+  clean.searchParams.delete("member_token");
+  const invite = clean.searchParams.get("invite");
+  const search = invite ? `?invite=${encodeURIComponent(invite)}` : "";
+  history.replaceState({}, "", `${clean.pathname}${search}`);
+}
+
+let memberToken = "";
+if (queryHadMemberToken) {
+  // Do not use query-string member tokens.
+  stripSensitiveFromUrl();
+} else {
+  const fromHash = fragmentToken();
+  memberToken = fromHash || sessionStorage.getItem(`skiherd:member:${groupToken}`) || "";
+  if (fromHash) {
+    sessionStorage.setItem(`skiherd:member:${groupToken}`, memberToken);
+    stripSensitiveFromUrl();
+  }
+}
 
 const membersEl = document.querySelector("#members");
 const countEl = document.querySelector("#count");
@@ -116,7 +142,10 @@ function connectWs() {
   if (!memberToken || hidden) return;
   if (socket) socket.close();
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  socket = new WebSocket(`${proto}://${location.host}/g/${groupToken}/ws?member_token=${encodeURIComponent(memberToken)}`);
+  socket = new WebSocket(`${proto}://${location.host}/g/${groupToken}/ws`);
+  socket.addEventListener("open", () => {
+    if (socket && memberToken) socket.send(JSON.stringify({ type: "auth", member_token: memberToken }));
+  });
   socket.addEventListener("message", (event) => {
     if (hidden) return;
     try {
@@ -149,12 +178,16 @@ function initMap() {
 }
 
 async function maybeJoin() {
+  if (queryHadMemberToken && !memberToken && !inviteToken) {
+    statusEl.textContent = "This link put a member token in the query string, which SkiHerd no longer accepts. Use the personal map link with #t= in the fragment, or an invite link.";
+    return false;
+  }
   if (memberToken) {
     sessionStorage.setItem(`skiherd:member:${groupToken}`, memberToken);
     return true;
   }
   if (!inviteToken) {
-    statusEl.textContent = "This map needs a member token or an invite link.";
+    statusEl.textContent = "This map needs a personal #t= link or an invite link.";
     return false;
   }
   joinForm.hidden = false;
@@ -176,10 +209,7 @@ joinForm?.addEventListener("submit", async (event) => {
     }
     memberToken = data.j.member_token;
     sessionStorage.setItem(`skiherd:member:${groupToken}`, memberToken);
-    const clean = new URL(location.href);
-    clean.searchParams.delete("invite");
-    clean.searchParams.set("member_token", memberToken);
-    history.replaceState({}, "", clean);
+    history.replaceState({}, "", `${location.pathname}`);
     joinForm.hidden = true;
     await refresh();
     connectWs();
