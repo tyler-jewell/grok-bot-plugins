@@ -26,9 +26,12 @@ function authHeaders() {
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 410) {
+  if (res.status === 410 || res.status === 404) {
     banner.hidden = false;
-    banner.textContent = "This group has expired. All of its data has been deleted.";
+    banner.textContent =
+      res.status === 404
+        ? "This group was not found or has been deleted."
+        : "This group has expired. All of its data has been deleted.";
     throw new Error("gone");
   }
   if (!res.ok) throw Object.assign(new Error(data.error || "request failed"), { status: res.status, data });
@@ -118,7 +121,13 @@ function connectWs() {
     if (hidden) return;
     try {
       const msg = JSON.parse(event.data);
-      if (msg.type === "heartbeat" || msg.type === "joined") refresh().catch(() => {});
+      if (msg.type === "gone" || msg.type === "deleted") {
+        banner.hidden = false;
+        banner.textContent = "This group has expired. All of its data has been deleted.";
+        if (socket) socket.close();
+        return;
+      }
+      if (msg.type === "heartbeat" || msg.type === "joined" || msg.type === "left") refresh().catch(() => {});
     } catch {
       /* ignore */
     }

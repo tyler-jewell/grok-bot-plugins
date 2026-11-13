@@ -8,14 +8,15 @@ export function json(data: unknown, status = 200, extra?: HeadersInit): Response
 }
 
 export function errorResponse(err: unknown): Response {
-  if (err instanceof GroupGoneError) return json({ error: err.message }, 410);
-  if (err instanceof GroupNotFoundError) return json({ error: err.message }, 404);
-  if (err instanceof UnauthorizedError) return json({ error: err.message }, 401);
-  if (err instanceof GroupFullError) return json({ error: err.message }, 409);
+  if (err instanceof GroupGoneError) return json({ error: err.message, code: "gone" }, 410);
+  if (err instanceof GroupNotFoundError) return json({ error: err.message, code: "not_found" }, 404);
+  if (err instanceof UnauthorizedError) return json({ error: err.message, code: "unauthorized" }, 401);
+  if (err instanceof GroupFullError) return json({ error: err.message, code: "full" }, 409);
   const message = err instanceof Error ? err.message : "internal error";
-  if (message === "group already exists") return json({ error: message }, 409);
-  if (message === "batch too large") return json({ error: message }, 413);
-  return json({ error: "internal error" }, 500);
+  if (message === "group already exists") return json({ error: message, code: "conflict" }, 409);
+  if (message === "batch too large") return json({ error: message, code: "batch_too_large" }, 413);
+  if (/no such table/i.test(message)) return json({ error: "group deleted", code: "gone" }, 410);
+  return json({ error: "internal error", code: "error" }, 500);
 }
 
 export function bearer(request: Request): string | null {

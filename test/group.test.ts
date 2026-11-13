@@ -20,7 +20,7 @@ describe("SkiGroup", () => {
     const group = stub("test-cap-" + crypto.randomUUID());
     const host = await group.create("Tyler");
     expect(host.member_token).toMatch(/^[0-9a-f]{64}$/);
-    const info = await group.info();
+    const info = await group.info(host.member_token);
     expect(info.member_count).toBe(1);
     expect(info.max_members).toBe(10);
 
@@ -32,7 +32,7 @@ describe("SkiGroup", () => {
       await expect(inst.join(invite.invite_token, "Eleventh")).rejects.toThrow(/full|already used/i);
       await expect(inst.groupMap("not-a-token")).rejects.toThrow(/unauthorized/i);
     });
-    const full = await group.info();
+    const full = await group.info(host.member_token);
     expect(full.member_count).toBe(10);
   });
 
@@ -66,7 +66,7 @@ describe("SkiGroup", () => {
     expect(leftover.alarm).toBeNull();
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
-      await expect(inst.info()).rejects.toThrow(/not found/i);
+      await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
     });
   });
 
@@ -181,7 +181,7 @@ describe("leave and delete", () => {
     const host = await group.create("Tyler");
     const invite = await group.createInvite(host.member_token, { max_uses: 1 });
     const guest = await group.join(invite.invite_token, "Alex");
-    expect((await group.info()).member_count).toBe(2);
+    expect((await group.info(host.member_token)).member_count).toBe(2);
 
     const denied = await runInDurableObject(group, async (inst: SkiGroup) => {
       try {
@@ -196,13 +196,13 @@ describe("leave and delete", () => {
 
     const left = await group.leave(guest.member_token);
     expect(left).toEqual({ left: true, group_deleted: false });
-    expect((await group.info()).member_count).toBe(1);
+    expect((await group.info(host.member_token)).member_count).toBe(1);
 
     const deleted = await group.deleteGroup(host.member_token);
     expect(deleted).toEqual({ deleted: true });
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
-      await expect(inst.info()).rejects.toThrow(/not found/i);
+      await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
     });
   });
 
@@ -213,7 +213,7 @@ describe("leave and delete", () => {
     expect(left).toEqual({ left: true, group_deleted: true });
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
-      await expect(inst.info()).rejects.toThrow(/not found/i);
+      await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
     });
   });
 
@@ -256,5 +256,177 @@ describe("leave and delete", () => {
     });
     expect(del.status).toBe(200);
     expect(await del.json()).toEqual({ deleted: true });
+  });
+});
+
+describe("post-wipe error shapes and recreate (#7)", () => {
+  it("returns a clean gone/not_found error after delete without evicting, and does not resurrect stale state on recreate", async () => {
+    const name = "test-wipe-recreate-" + crypto.randomUUID();
+    const group = stub(name);
+    const host = await group.create("Tyler");
+    await group.postHeartbeat(host.member_token, [
+      { ts: new Date().toISOString(), lat: 39.88, lon: -105.76, activity: "run", lift_or_trail: "Cranmer" },
+    ]);
+
+    const deleted = await group.deleteGroup(host.member_token);
+    expect(deleted).toEqual({ deleted: true });
+
+    const after = await runInDurableObject(group, async (inst: SkiGroup) => {
+      try {
+        await inst.groupMap(host.member_token);
+        return { threw: false, message: "", name: "" };
+      } catch (err) {
+        return { threw: true, message: err instanceof Error ? err.message : String(err), name: err instanceof Error ? err.name : "" };
+      }
+    });
+    expect(after.threw).toBe(true);
+    expect(after.message).not.toMatch(/no such table|SQLITE/i);
+    expect(after.message).toMatch(/deleted|expired|not found/i);
+    expect(after.name).toMatch(/GroupGoneError|GroupNotFoundError/);
+
+    const recreated = await group.create("Alex");
+    expect(recreated.member_token).not.toBe(host.member_token);
+    const map = await group.groupMap(recreated.member_token);
+    expect(map.members).toHaveLength(1);
+    expect(map.members[0].name).toBe("Alex");
+    expect(map.members[0].lat).toBeNull();
+
+    const stale = await runInDurableObject(group, async (inst: SkiGroup) => {
+      try {
+        await inst.groupMap(host.member_token);
+        return { threw: false, message: "" };
+      } catch (err) {
+        return { threw: true, message: err instanceof Error ? err.message : String(err) };
+      }
+    });
+    expect(stale.threw).toBe(true);
+    expect(stale.message).toMatch(/unauthorized/i);
+
+    const alarm = await runInDurableObject(group, async (_inst, state) => state.storage.getAlarm());
+    expect(alarm).toBeTypeOf("number");
+    expect(alarm).toBeGreaterThan(Date.parse(recreated.created_at));
+  });
+
+  it("returns a clean gone error after the 24h alarm without evicting", async () => {
+    const group = stub("test-alarm-gone-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const ran = await runDurableObjectAlarm(group);
+    expect(ran).toBe(true);
+    const after = await runInDurableObject(group, async (inst: SkiGroup) => {
+      try {
+        await inst.groupMap(host.member_token);
+        return { threw: false, message: "" };
+      } catch (err) {
+        return { threw: true, message: err instanceof Error ? err.message : String(err) };
+      }
+    });
+    expect(after.threw).toBe(true);
+    expect(after.message).not.toMatch(/no such table|SQLITE/i);
+    expect(after.message).toMatch(/deleted|expired|not found/i);
+  });
+
+  it("returns a clean gone error after the last member leaves, without evicting", async () => {
+    const group = stub("test-last-leave-gone-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const left = await group.leave(host.member_token);
+    expect(left).toEqual({ left: true, group_deleted: true });
+    const after = await runInDurableObject(group, async (inst: SkiGroup) => {
+      try {
+        await inst.info(host.member_token);
+        return { threw: false, message: "" };
+      } catch (err) {
+        return { threw: true, message: err instanceof Error ? err.message : String(err) };
+      }
+    });
+    expect(after.threw).toBe(true);
+    expect(after.message).not.toMatch(/no such table|SQLITE/i);
+    expect(after.message).toMatch(/deleted|expired|not found/i);
+  });
+
+  it("returns HTTP 410 with code gone after delete, without evicting", async () => {
+    const created = await SELF.fetch("https://skiherd.jewell-labs.com/api/groups", {
+      method: "POST",
+      headers: { "content-type": "application/json", "CF-Connecting-IP": "203.0.113.50" },
+      body: JSON.stringify({ host_name: "Tyler" }),
+    });
+    const body = await created.json<{ group_token: string; member_token: string }>();
+    const del = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${body.member_token}` },
+    });
+    expect(del.status).toBe(200);
+    const map = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}/map`, {
+      headers: { authorization: `Bearer ${body.member_token}` },
+    });
+    expect(map.status).toBe(410);
+    const payload = await map.json<{ error: string; code?: string }>();
+    expect(payload.code).toBe("gone");
+    expect(payload.error).not.toMatch(/no such table|SQLITE/i);
+    expect(payload.error).toMatch(/deleted|expired/i);
+  });
+});
+
+describe("authenticated group info (#8)", () => {
+  it("rejects a missing or invalid member token on GET /api/groups/:id", async () => {
+    const created = await SELF.fetch("https://skiherd.jewell-labs.com/api/groups", {
+      method: "POST",
+      headers: { "content-type": "application/json", "CF-Connecting-IP": "203.0.113.51" },
+      body: JSON.stringify({ host_name: "Tyler" }),
+    });
+    const body = await created.json<{ group_token: string; member_token: string }>();
+    const missing = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`);
+    expect(missing.status).toBe(401);
+    const bogus = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`, {
+      headers: { authorization: "Bearer not-a-real-token" },
+    });
+    expect(bogus.status).toBe(401);
+    const ok = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`, {
+      headers: { authorization: `Bearer ${body.member_token}` },
+    });
+    expect(ok.status).toBe(200);
+    const info = await ok.json<{ member_count: number }>();
+    expect(info.member_count).toBe(1);
+  });
+});
+
+describe("heartbeat validation (#9)", () => {
+  it("does not store NaN or out-of-range coordinates", async () => {
+    const group = stub("test-nan-hb-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const res = await group.postHeartbeat(host.member_token, [
+      { ts: new Date().toISOString(), lat: Number.NaN, lon: -105.76 },
+      { ts: new Date().toISOString(), lat: 39.88, lon: Number.POSITIVE_INFINITY },
+      { ts: new Date().toISOString(), lat: 39.88, lon: -105.76, alt_m: Number.NaN, speed_mps: 3 },
+    ]);
+    expect(res.accepted).toBe(1);
+    const map = await group.groupMap(host.member_token);
+    expect(map.members[0].lat).toBeCloseTo(39.88);
+    expect(map.members[0].lon).toBeCloseTo(-105.76);
+    expect(map.members[0].alt_m).toBeNull();
+    expect(map.members[0].speed_mps).toBe(3);
+  });
+});
+
+describe("member colors (#10)", () => {
+  it("assigns a free color after a member leaves", async () => {
+    const group = stub("test-color-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const invite = await group.createInvite(host.member_token, { max_uses: 3 });
+    const alex = await group.join(invite.invite_token, "Alex");
+    const sam = await group.join(invite.invite_token, "Sam");
+    const before = await group.groupMap(host.member_token);
+    const colorsBefore = before.members.map((m) => m.color);
+    expect(new Set(colorsBefore).size).toBe(3);
+
+    await group.leave(host.member_token);
+    const jordan = await group.join(invite.invite_token, "Jordan");
+    const after = await group.groupMap(alex.member_token);
+    const colors = after.members.map((m) => m.color);
+    expect(after.members).toHaveLength(3);
+    expect(new Set(colors).size).toBe(3);
+    expect(after.members.find((m) => m.name === "Jordan")?.color).not.toBe(after.members.find((m) => m.name === "Alex")?.color);
+    expect(after.members.find((m) => m.name === "Jordan")?.color).not.toBe(after.members.find((m) => m.name === "Sam")?.color);
+    expect(jordan.member_token).toBeTruthy();
+    expect(sam.member_token).toBeTruthy();
   });
 });

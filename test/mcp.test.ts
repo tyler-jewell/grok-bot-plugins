@@ -1,5 +1,4 @@
-import { evictDurableObject, SELF } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { MCP_INSTRUCTIONS, SKILLS, SKILL_NAMES } from "../src/skills.generated";
 
@@ -256,8 +255,6 @@ describe("MCP leave and delete", () => {
     ) as { deleted: boolean };
     expect(deleted).toEqual({ deleted: true });
 
-    const group = env.GROUP.get(env.GROUP.idFromName(created.group_token));
-    await evictDurableObject(group);
     const gone = resultOf(
       (
         await mcp(
@@ -272,6 +269,9 @@ describe("MCP leave and delete", () => {
       ).message,
     ) as { isError?: boolean; content?: Array<{ text?: string }> };
     expect(gone.isError).toBe(true);
-    expect(gone.content?.[0]?.text).toMatch(/not_found|gone|not found|expired/i);
+    const payload = JSON.parse(gone.content?.[0]?.text ?? "{}") as { error?: string; message?: string };
+    expect(payload.error).toMatch(/gone|not_found/);
+    expect(payload.message ?? "").not.toMatch(/no such table|SQLITE/i);
+    expect(payload.message ?? "").toMatch(/deleted|expired|not found/i);
   });
 });

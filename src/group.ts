@@ -36,10 +36,18 @@ export type GroupInfo = {
 };
 
 export class SkiGroup extends DurableObject<Env> {
+  /** Set after deleteAll on this still-resident instance. Constructor does not re-run. */
+  private wiped = false;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
-      this.ctx.storage.sql.exec(`
+      this.ensureSchema();
+    });
+  }
+
+  private ensureSchema(): void {
+    this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS meta (
           k TEXT PRIMARY KEY,
           v TEXT NOT NULL
@@ -77,7 +85,18 @@ export class SkiGroup extends DurableObject<Env> {
         CREATE INDEX IF NOT EXISTS hb_member_ts ON heartbeats (member_id, ts);
         CREATE INDEX IF NOT EXISTS hb_trail ON heartbeats (lift_or_trail);
       `);
-    });
+  }
+
+  private hasSchema(): boolean {
+    try {
+      const row = this.ctx.storage.sql
+        .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
+        .toArray()[0];
+      return Boolean(row);
+    } catch (err) {
+      if (isMissingSchema(err)) return false;
+      throw err;
+    }
   }
 
   private maxMembers(): number {
@@ -89,8 +108,14 @@ export class SkiGroup extends DurableObject<Env> {
   }
 
   private meta(k: string): string | null {
-    const row = this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM meta WHERE k = ?", k).toArray()[0];
-    return row?.v ?? null;
+    if (!this.hasSchema()) return null;
+    try {
+      const row = this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM meta WHERE k = ?", k).toArray()[0];
+      return row?.v ?? null;
+    } catch (err) {
+      if (isMissingSchema(err)) return null;
+      throw err;
+    }
   }
 
   private setMeta(k: string, v: string): void {
@@ -103,13 +128,48 @@ export class SkiGroup extends DurableObject<Env> {
     return Date.now() >= Number(exp);
   }
 
-  private gone(): never {
-    throw new GroupGoneError();
+  private gone(message = "group expired"): never {
+    throw new GroupGoneError(message);
+  }
+
+  private hasCreatedGroup(): boolean {
+    if (this.wiped || !this.hasSchema()) return false;
+    return this.meta("created_at") != null;
   }
 
   private assertLive(): void {
+    if (this.wiped || !this.hasSchema()) this.gone("group deleted");
     if (this.meta("created_at") == null) throw new GroupNotFoundError();
     if (this.isExpired()) this.gone();
+  }
+
+  private closeAllSockets(): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.close(1000, "group deleted");
+      } catch {
+        /* already closing */
+      }
+    }
+  }
+
+  private async wipe(reason: "deleted" | "expired"): Promise<void> {
+    this.broadcast({ type: "gone", reason });
+    this.closeAllSockets();
+    try {
+      await this.ctx.storage.deleteAlarm();
+    } catch {
+      /* alarm already gone */
+    }
+    await this.ctx.storage.deleteAll();
+    this.wiped = true;
+  }
+
+  private nextColor(): string {
+    const used = new Set(
+      this.ctx.storage.sql.exec<{ color: string }>("SELECT color FROM members").toArray().map((r) => r.color),
+    );
+    return COLORS.find((c) => !used.has(c)) ?? COLORS[0];
   }
 
   async create(hostName: string): Promise<{
@@ -119,9 +179,19 @@ export class SkiGroup extends DurableObject<Env> {
     expires_at: string;
     created_at: string;
   }> {
-    if (this.meta("created_at")) {
+    if (this.hasCreatedGroup() && this.isExpired()) {
+      await this.wipe("expired");
+    }
+    if (this.hasCreatedGroup()) {
       throw new Error("group already exists");
     }
+    this.ensureSchema();
+    this.wiped = false;
+    // Do not resurrect leftovers if anything survived the wipe.
+    this.ctx.storage.sql.exec("DELETE FROM heartbeats");
+    this.ctx.storage.sql.exec("DELETE FROM invites");
+    this.ctx.storage.sql.exec("DELETE FROM members");
+    this.ctx.storage.sql.exec("DELETE FROM meta");
     const created = Date.now();
     const expires = created + this.ttlMs();
     const groupToken = this.ctx.id.name ?? this.ctx.id.toString();
@@ -153,11 +223,11 @@ export class SkiGroup extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     // 24h self-delete: wipe all storage. No data kept.
-    await this.ctx.storage.deleteAll();
+    await this.wipe("expired");
   }
 
-  async info(): Promise<GroupInfo> {
-    this.assertLive();
+  async info(memberToken: string): Promise<GroupInfo> {
+    await this.authMember(memberToken);
     const n = this.ctx.storage.sql.exec<{ c: number }>("SELECT COUNT(*) AS c FROM members").one().c;
     return {
       group_token: this.meta("group_token") ?? "",
@@ -216,7 +286,7 @@ export class SkiGroup extends DurableObject<Env> {
     const memberId = randomToken(16);
     const memberToken = randomToken(32);
     const tokenHash = await sha256Hex(memberToken);
-    const color = COLORS[count % COLORS.length];
+    const color = this.nextColor();
     this.ctx.storage.sql.exec(
       "INSERT INTO members (id, display_name, color, token_hash, joined_at) VALUES (?, ?, ?, ?, ?)",
       memberId,
@@ -240,8 +310,10 @@ export class SkiGroup extends DurableObject<Env> {
     if (points.length > 500) throw new Error("batch too large");
     let accepted = 0;
     for (const p of points) {
-      if (typeof p.lat !== "number" || typeof p.lon !== "number") continue;
-      if (p.lat < -90 || p.lat > 90 || p.lon < -180 || p.lon > 180) continue;
+      const lat = finiteNumber(p.lat);
+      const lon = finiteNumber(p.lon);
+      if (lat == null || lon == null) continue;
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
       const ts = p.ts ? Date.parse(p.ts) : Date.now();
       if (!Number.isFinite(ts)) continue;
       this.ctx.storage.sql.exec(
@@ -249,13 +321,13 @@ export class SkiGroup extends DurableObject<Env> {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         member.id,
         ts,
-        p.lat,
-        p.lon,
-        p.alt_m ?? null,
-        p.accuracy_m ?? null,
-        p.speed_mps ?? null,
-        p.heading_deg ?? null,
-        p.battery_pct ?? null,
+        lat,
+        lon,
+        finiteNumber(p.alt_m),
+        finiteNumber(p.accuracy_m),
+        finiteNumber(p.speed_mps),
+        finiteNumber(p.heading_deg),
+        finiteNumber(p.battery_pct),
         p.activity ?? null,
         p.place ?? null,
         p.lift_or_trail ?? null,
@@ -398,7 +470,7 @@ export class SkiGroup extends DurableObject<Env> {
     const remaining = this.ctx.storage.sql.exec<{ c: number }>("SELECT COUNT(*) AS c FROM members").one().c;
     this.broadcast({ type: "left", member_id: member.id });
     if (remaining <= 0) {
-      await this.ctx.storage.deleteAll();
+      await this.wipe("deleted");
       return { left: true, group_deleted: true };
     }
     return { left: true, group_deleted: false };
@@ -408,7 +480,7 @@ export class SkiGroup extends DurableObject<Env> {
     const member = await this.authMember(memberToken);
     const hostId = this.meta("host_id");
     if (!hostId || member.id !== hostId) throw new UnauthorizedError("only the creator can delete this group");
-    await this.ctx.storage.deleteAll();
+    await this.wipe("deleted");
     return { deleted: true };
   }
 
@@ -422,6 +494,8 @@ export class SkiGroup extends DurableObject<Env> {
     if (!name.startsWith("__skiherd_health__")) {
       throw new Error("health probe is only allowed on ephemeral health objects");
     }
+    if (this.wiped || !this.hasSchema()) this.ensureSchema();
+    this.wiped = false;
     const marker = `probe:${Date.now()}`;
     this.setMeta("health_probe", marker);
     const storage_write = true;
@@ -430,7 +504,7 @@ export class SkiGroup extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(when);
     const alarm = await this.ctx.storage.getAlarm();
     const alarm_scheduled = typeof alarm === "number" && alarm >= when - 5_000;
-    await this.ctx.storage.deleteAll();
+    await this.wipe("deleted");
     return { storage_write, storage_read, alarm_scheduled };
   }
 
@@ -463,6 +537,20 @@ export class SkiGroup extends DurableObject<Env> {
       }
     }
   }
+}
+
+function isMissingSchema(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /no such table/i.test(message) || /SQLITE_ERROR/i.test(message);
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 function havKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -532,8 +620,8 @@ function statsFrom(
 }
 
 export class GroupGoneError extends Error {
-  constructor() {
-    super("group expired");
+  constructor(message = "group expired") {
+    super(message);
     this.name = "GroupGoneError";
   }
 }

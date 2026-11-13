@@ -84,11 +84,11 @@ describe("healthcheck", () => {
     expect(result).toEqual({ storage_write: true, storage_read: true, alarm_scheduled: true });
 
     const group = stub("test-health-guard-" + crypto.randomUUID());
-    await group.create("Tyler");
+    const host = await group.create("Tyler");
     await runInDurableObject(group, async (inst: SkiGroup) => {
       await expect(inst.healthProbe()).rejects.toThrow(/ephemeral health/i);
     });
-    const still = await group.info();
+    const still = await group.info(host.member_token);
     expect(still.member_count).toBe(1);
     await evictDurableObject(group);
   });
