@@ -158,15 +158,20 @@ export default {
       }
 
       const ws = path.match(/^\/g\/([^/]+)\/ws$/);
-      if (ws && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      if (ws) {
         if (queryHasMemberToken(request)) return withSecurity(queryTokenRejected());
+        if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+          return withSecurity(json({ error: "WebSocket upgrade required", code: "upgrade_required" }, 426));
+        }
         const groupToken = decodeURIComponent(ws[1]);
-        return stub(env, groupToken).sessionWebSocket(request);
+        return stub(env, groupToken).fetch(request);
       }
 
       if (path.startsWith("/g/")) {
         const page = await env.ASSETS.fetch(new URL("/group.html", request.url));
-        return withSecurity(new Response(page.body, { status: page.status, headers: page.headers }));
+        const headers = new Headers(page.headers);
+        headers.set("cache-control", "no-store");
+        return withSecurity(new Response(page.body, { status: page.status, headers }));
       }
 
       const asset = await env.ASSETS.fetch(request);

@@ -511,6 +511,18 @@ export class SkiGroup extends DurableObject<Env> {
   }
 
   /**
+   * Preferred entry for WebSocket upgrades. Using stub.fetch() keeps the 101
+   * response in the Durable Object isolate so the socket is not serialized
+   * across a custom RPC (which throws DataCloneError / Cloudflare 1101).
+   */
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      return this.sessionWebSocket(request);
+    }
+    return new Response("WebSocket upgrade required", { status: 426, headers: { upgrade: "websocket" } });
+  }
+
+  /**
    * Accept a WebSocket and wait for a first-message auth payload:
    * `{ "type": "auth", "member_token": "..." }`. Query-string tokens are
    * rejected by the Worker before this runs. Unauthenticated sockets are

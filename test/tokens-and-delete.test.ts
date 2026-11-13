@@ -54,6 +54,16 @@ describe("member tokens stay out of query strings (#12)", () => {
     expect(payload.code).toBe("invalid_request");
   });
 
+  it("requires a WebSocket upgrade on /g/:id/ws and does not cache that path as HTML", async () => {
+    const body = await createHttp("Tyler", "203.0.113.70");
+    const res = await SELF.fetch(`https://skiherd.jewell-labs.com/g/${body.group_token}/ws`);
+    expect(res.status).toBe(426);
+    expect(res.headers.get("cache-control") ?? "").toMatch(/no-store/i);
+    const page = await SELF.fetch(`https://skiherd.jewell-labs.com/g/${body.group_token}`);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("cache-control") ?? "").toMatch(/no-store/i);
+  });
+
   it("authenticates a WebSocket with a first-message auth payload", async () => {
     const group = stub("test-ws-auth-" + crypto.randomUUID());
     const host = await group.create("Tyler");
