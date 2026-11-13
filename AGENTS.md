@@ -19,6 +19,7 @@ Public Grok Bot plugins and the SkiHerd group-map Worker. Grok Bot does this wor
 
 - Never print secrets, tokens, account IDs, or API keys.
 - Do not log raw coordinates or raw member/invite/group tokens.
+- Member tokens must not appear in map URLs or WebSocket query strings. Use a `#t=` fragment on the personal map link and first-message WebSocket auth.
 - Phase 1 auth is unguessable tokens stored as SHA-256 hashes. No PII.
 - Do not add wrangler Rate Limit bindings or Turnstile keys that would provision account resources on deploy until Tyler approves those IDs.
 

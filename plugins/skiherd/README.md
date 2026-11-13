@@ -8,6 +8,8 @@ Live group ski map and heartbeat stats for up to 10 people.
 
 Grok Bot first, then ChatGPT, Claude, or any MCP client via the same MCP URL. You do not need a Cloudflare account. Tyler hosts the Worker on his personal Cloudflare account under a jewell-labs.com subdomain.
 
+Personal map links use a `#t=` fragment, not a query string. Any current member can delete a group.
+
 The MCP server is self-describing. It tells the agent to run `healthcheck` first, then follow the `setup` skill. Those two skills ship in this plugin package and are also served over MCP (prompts, `skiherd://skills/...` resources, and the `get_skill` tool), so a bot that only added the MCP URL still has everything it needs.
 
 This is not affiliated with Winter Park Resort. Map data © OpenStreetMap contributors.

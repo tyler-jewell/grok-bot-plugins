@@ -22,8 +22,19 @@ export function errorResponse(err: unknown): Response {
 export function bearer(request: Request): string | null {
   const h = request.headers.get("authorization");
   if (h && h.toLowerCase().startsWith("bearer ")) return h.slice(7).trim();
-  const q = new URL(request.url).searchParams.get("member_token");
-  return q;
+  return null;
+}
+
+/** Member tokens in the query string are rejected (use Authorization or WS first-message auth). */
+export function queryHasMemberToken(request: Request): boolean {
+  return new URL(request.url).searchParams.has("member_token");
+}
+
+export function queryTokenRejected(): Response {
+  return json(
+    { error: "member tokens must not be sent in the query string", code: "invalid_request" },
+    400,
+  );
 }
 
 export function securityHeaders(): Headers {

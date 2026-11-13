@@ -17,11 +17,11 @@ This project is not affiliated with Winter Park Resort. Trail and lift geometrie
 ## What Phase 1 does
 
 - Create a group of up to 10 skiers, or join with an invite.
-- Invite friends with an opaque, expiring, capped invite token.
+- Invite friends with an opaque, expiring, capped invite token. A person's map link uses a `#t=` fragment (never a query string); the page strips it after load.
 - Post location heartbeats (one point or a batch).
 - See everyone on a MapLibre map with live WebSocket updates.
 - Ask MCP tools for the map, group stats, runs not hit, and a suggested new route.
-- A member can leave; the creator can delete the group now. Otherwise the group self-deletes 24 hours after creation.
+- A member can leave; any current member can delete the group now. Otherwise the group self-deletes 24 hours after creation.
 
 Each group lives in its own SQLite-backed Cloudflare Durable Object. Twenty-four hours after the group is created, the object deletes all of its storage. Nothing is kept.
 

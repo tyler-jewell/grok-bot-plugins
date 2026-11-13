@@ -4,6 +4,9 @@ import { randomToken, sha256Hex, timingSafeEqual } from "./tokens";
 
 export const COLORS = ["#2F6FED", "#E85D04", "#0B7A4B", "#7B2CBF", "#C1121F", "#0077B6", "#9A031E", "#2D6A4F", "#6A4C93", "#B08968"];
 
+/** WebSocket clients must send a valid auth message within this window. */
+export const AUTH_TIMEOUT_MS = 5_000;
+
 export type HeartbeatIn = {
   ts: string;
   lat: number;
@@ -153,8 +156,8 @@ export class SkiGroup extends DurableObject<Env> {
     }
   }
 
-  private async wipe(reason: "deleted" | "expired"): Promise<void> {
-    this.broadcast({ type: "gone", reason });
+  private async wipe(reason: "deleted" | "expired", deletedBy?: { member_id: string; name: string }): Promise<void> {
+    this.broadcast({ type: "gone", reason, deleted_by: deletedBy ?? null });
     this.closeAllSockets();
     try {
       await this.ctx.storage.deleteAlarm();
@@ -463,25 +466,24 @@ export class SkiGroup extends DurableObject<Env> {
     };
   }
 
-  async leave(memberToken: string): Promise<{ left: true; group_deleted: boolean }> {
+  async leave(memberToken: string): Promise<{ left: true; group_deleted: boolean; deleted_by?: { member_id: string; name: string } }> {
     const member = await this.authMember(memberToken);
     this.ctx.storage.sql.exec("DELETE FROM heartbeats WHERE member_id = ?", member.id);
     this.ctx.storage.sql.exec("DELETE FROM members WHERE id = ?", member.id);
     const remaining = this.ctx.storage.sql.exec<{ c: number }>("SELECT COUNT(*) AS c FROM members").one().c;
     this.broadcast({ type: "left", member_id: member.id });
     if (remaining <= 0) {
-      await this.wipe("deleted");
-      return { left: true, group_deleted: true };
+      await this.wipe("deleted", { member_id: member.id, name: member.display_name });
+      return { left: true, group_deleted: true, deleted_by: { member_id: member.id, name: member.display_name } };
     }
     return { left: true, group_deleted: false };
   }
 
-  async deleteGroup(memberToken: string): Promise<{ deleted: true }> {
+  async deleteGroup(memberToken: string): Promise<{ deleted: true; deleted_by: { member_id: string; name: string } }> {
     const member = await this.authMember(memberToken);
-    const hostId = this.meta("host_id");
-    if (!hostId || member.id !== hostId) throw new UnauthorizedError("only the creator can delete this group");
-    await this.wipe("deleted");
-    return { deleted: true };
+    const deletedBy = { member_id: member.id, name: member.display_name };
+    await this.wipe("deleted", deletedBy);
+    return { deleted: true, deleted_by: deletedBy };
   }
 
   /**
@@ -508,17 +510,77 @@ export class SkiGroup extends DurableObject<Env> {
     return { storage_write, storage_read, alarm_scheduled };
   }
 
-  async sessionWebSocket(request: Request, memberToken: string): Promise<Response> {
-
-    await this.authMember(memberToken);
+  /**
+   * Accept a WebSocket and wait for a first-message auth payload:
+   * `{ "type": "auth", "member_token": "..." }`. Query-string tokens are
+   * rejected by the Worker before this runs. Unauthenticated sockets are
+   * closed after AUTH_TIMEOUT_MS and never receive group events.
+   */
+  async sessionWebSocket(_request: Request): Promise<Response> {
+    this.assertLive();
     const pair = new WebSocketPair();
-    this.ctx.acceptWebSocket(pair[1]);
+    const server = pair[1];
+    const openedAt = Date.now();
+    server.serializeAttachment({ authed: false, openedAt });
+    this.ctx.acceptWebSocket(server);
+    // Do not close over the WebSocket instance (it is not structured-cloneable).
+    this.ctx.waitUntil(this.closePendingAuth(openedAt));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
-  async webSocketMessage(ws: WebSocket, _message: string | ArrayBuffer): Promise<void> {
-    // Clients only receive; ignore inbound payloads besides pings.
-    if (typeof _message === "string" && _message === "ping") {
+  private async closePendingAuth(openedAt: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, AUTH_TIMEOUT_MS));
+    for (const socket of this.ctx.getWebSockets()) {
+      let att: { authed?: boolean; openedAt?: number } | null = null;
+      try {
+        att = socket.deserializeAttachment() as { authed?: boolean; openedAt?: number } | null;
+      } catch {
+        att = null;
+      }
+      if (att?.authed) continue;
+      if ((att?.openedAt ?? 0) > openedAt + 50) continue;
+      try {
+        socket.close(1008, "auth timeout");
+      } catch {
+        /* already closing */
+      }
+    }
+  }
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const att = ((): { authed?: boolean } => {
+      try {
+        return (ws.deserializeAttachment() as { authed?: boolean } | null) ?? {};
+      } catch {
+        return {};
+      }
+    })();
+    if (!att.authed) {
+      if (typeof message !== "string") {
+        ws.close(1008, "unauthorized");
+        return;
+      }
+      let payload: { type?: string; member_token?: string } = {};
+      try {
+        payload = JSON.parse(message) as { type?: string; member_token?: string };
+      } catch {
+        ws.close(1008, "unauthorized");
+        return;
+      }
+      if (payload.type !== "auth" || typeof payload.member_token !== "string") {
+        ws.close(1008, "unauthorized");
+        return;
+      }
+      try {
+        const member = await this.authMember(payload.member_token);
+        ws.serializeAttachment({ authed: true, memberId: member.id, openedAt: Date.now() });
+        ws.send(JSON.stringify({ type: "authed", member_id: member.id }));
+      } catch {
+        ws.close(1008, "unauthorized");
+      }
+      return;
+    }
+    if (typeof message === "string" && message === "ping") {
       ws.send(JSON.stringify({ type: "pong" }));
     }
   }
@@ -530,6 +592,13 @@ export class SkiGroup extends DurableObject<Env> {
   private broadcast(payload: unknown): void {
     const msg = JSON.stringify(payload);
     for (const ws of this.ctx.getWebSockets()) {
+      let att: { authed?: boolean } | null = null;
+      try {
+        att = ws.deserializeAttachment() as { authed?: boolean } | null;
+      } catch {
+        att = null;
+      }
+      if (!att?.authed) continue;
       try {
         ws.send(msg);
       } catch {

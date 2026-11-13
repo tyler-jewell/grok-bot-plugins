@@ -176,30 +176,21 @@ describe("HTTP worker", () => {
 });
 
 describe("leave and delete", () => {
-  it("lets a member leave, refuses delete from a non-creator, and lets the creator delete now", async () => {
+  it("lets a member leave and lets any current member delete the group", async () => {
     const group = stub("test-delete-" + crypto.randomUUID());
     const host = await group.create("Tyler");
     const invite = await group.createInvite(host.member_token, { max_uses: 1 });
     const guest = await group.join(invite.invite_token, "Alex");
     expect((await group.info(host.member_token)).member_count).toBe(2);
 
-    const denied = await runInDurableObject(group, async (inst: SkiGroup) => {
-      try {
-        await inst.deleteGroup(guest.member_token);
-        return { threw: false, message: "" };
-      } catch (err) {
-        return { threw: true, message: err instanceof Error ? err.message : String(err) };
-      }
-    });
-    expect(denied.threw).toBe(true);
-    expect(denied.message).toMatch(/creator/i);
-
     const left = await group.leave(guest.member_token);
-    expect(left).toEqual({ left: true, group_deleted: false });
+    expect(left).toMatchObject({ left: true, group_deleted: false });
     expect((await group.info(host.member_token)).member_count).toBe(1);
 
     const deleted = await group.deleteGroup(host.member_token);
-    expect(deleted).toEqual({ deleted: true });
+    expect(deleted).toMatchObject({ deleted: true });
+    expect(deleted.deleted_by).toMatchObject({ name: "Tyler" });
+    expect(deleted.deleted_by.member_id).toBeTruthy();
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
       await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
@@ -210,7 +201,8 @@ describe("leave and delete", () => {
     const group = stub("test-last-leave-" + crypto.randomUUID());
     const host = await group.create("Tyler");
     const left = await group.leave(host.member_token);
-    expect(left).toEqual({ left: true, group_deleted: true });
+    expect(left).toMatchObject({ left: true, group_deleted: true });
+    expect(left.deleted_by).toMatchObject({ name: "Tyler" });
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
       await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
@@ -237,25 +229,20 @@ describe("leave and delete", () => {
       body: JSON.stringify({ invite_token: invite.invite_token, display_name: "Alex" }),
     });
     const guest = await joinedRes.json<{ member_token: string }>();
-    const forbidden = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`, {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${guest.member_token}` },
-    });
-    expect(forbidden.status).toBe(401);
-
     const leave = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}/leave`, {
       method: "POST",
       headers: { authorization: `Bearer ${guest.member_token}` },
     });
     expect(leave.status).toBe(200);
-    expect(await leave.json()).toEqual({ left: true, group_deleted: false });
+    expect(await leave.json()).toMatchObject({ left: true, group_deleted: false });
 
     const del = await SELF.fetch(`https://skiherd.jewell-labs.com/api/groups/${body.group_token}`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${body.member_token}` },
     });
     expect(del.status).toBe(200);
-    expect(await del.json()).toEqual({ deleted: true });
+    const deleted = await del.json<{ deleted: boolean; deleted_by: { name: string } }>();
+    expect(deleted).toMatchObject({ deleted: true, deleted_by: { name: "Tyler" } });
   });
 });
 
@@ -269,7 +256,7 @@ describe("post-wipe error shapes and recreate (#7)", () => {
     ]);
 
     const deleted = await group.deleteGroup(host.member_token);
-    expect(deleted).toEqual({ deleted: true });
+    expect(deleted).toMatchObject({ deleted: true });
 
     const after = await runInDurableObject(group, async (inst: SkiGroup) => {
       try {
@@ -329,7 +316,7 @@ describe("post-wipe error shapes and recreate (#7)", () => {
     const group = stub("test-last-leave-gone-" + crypto.randomUUID());
     const host = await group.create("Tyler");
     const left = await group.leave(host.member_token);
-    expect(left).toEqual({ left: true, group_deleted: true });
+    expect(left).toMatchObject({ left: true, group_deleted: true });
     const after = await runInDurableObject(group, async (inst: SkiGroup) => {
       try {
         await inst.info(host.member_token);
