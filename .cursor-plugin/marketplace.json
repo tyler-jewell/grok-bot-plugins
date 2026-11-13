@@ -1,0 +1,15 @@
+{
+  "name": "jewell-labs-grok-bot-plugins",
+  "owner": {
+    "name": "Tyler Jewell"
+  },
+  "metadata": {
+    "description": "Public Grok Bot plugins hosted by Tyler Jewell."
+  },
+  "plugins": [
+    {
+      "name": "skiherd",
+      "source": "./plugins/skiherd"
+    }
+  ]
+}

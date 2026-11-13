@@ -1,0 +1,28 @@
+{
+  "name": "grok-bot-plugins",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types",
+    "check": "wrangler types && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.8.2",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.162.0"
+  },
+  "dependencies": {
+    "agents": "^0.33.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "^4.1.12"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261113.1": true,
+    "core-js-pure@3.51.0": true
+  }
+}

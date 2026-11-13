@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkiHerd — group ski map</title>
+  <meta name="description" content="A free, 24-hour group ski map. Hosted by Tyler Jewell. No data is kept.">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="app">
+    <a class="brand" href="/">
+      <span class="logo" aria-hidden="true">SH</span>
+      <div>
+        <h1>SkiHerd</h1>
+        <p>Live group map for a ski day</p>
+      </div>
+    </a>
+  </header>
+  <main id="main" class="landing">
+    <h2>See your group on one map.</h2>
+    <p>Create a group, invite up to nine friends, and share live positions for the rest of the day. This is a free plugin anyone can use from Grok Bot, ChatGPT, Claude, or any MCP client.</p>
+    <div class="card">
+      <form id="create" action="/api/groups" method="post">
+        <label for="host_name">Your display name</label>
+        <input id="host_name" name="host_name" type="text" maxlength="40" autocomplete="nickname" required placeholder="Tyler">
+        <p class="fine">We only store this name and the locations you post. No email, no phone, no account.</p>
+        <div class="row">
+          <button type="submit">Create a 24-hour group</button>
+        </div>
+        <p id="status" role="status"></p>
+      </form>
+    </div>
+    <p class="legal"><strong>Hosted free by Tyler Jewell.</strong> Bare minimum. No data is kept. Everything in a group — names, positions, invites, and stats — is deleted automatically 24 hours after the group is created. Cap of 10 people. This project is not affiliated with Winter Park Resort or any other ski area. Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors. Read the <a href="/privacy.html">privacy note</a> and <a href="/terms.html">terms</a>.</p>
+  </main>
+  <script type="module" src="/landing.js"></script>
+</body>
+</html>

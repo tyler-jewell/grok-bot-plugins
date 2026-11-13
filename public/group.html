@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkiHerd group map</title>
+  <meta name="description" content="Live SkiHerd group map. Data is deleted 24 hours after the group was created.">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.2/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip" href="#roster">Skip to roster</a>
+  <header class="app">
+    <a class="brand" href="/">
+      <span class="logo" aria-hidden="true">SH</span>
+      <div>
+        <h1>SkiHerd</h1>
+        <p>Group map · not affiliated with Winter Park Resort</p>
+      </div>
+    </a>
+    <p class="fine" id="expiry"></p>
+  </header>
+  <div class="banner" id="banner" hidden>This group has expired or all of its data has been deleted.</div>
+  <div class="shell">
+    <aside class="sidebar" id="roster">
+      <h2>The herd</h2>
+      <p class="fine" id="count"></p>
+      <div id="members" role="list"></div>
+      <form id="join" hidden>
+        <label for="join_name">Your display name</label>
+        <input id="join_name" name="join_name" type="text" maxlength="40" autocomplete="nickname" required>
+        <div class="row"><button type="submit">Join this group</button></div>
+      </form>
+      <div id="host-tools" hidden>
+        <h3>Invite</h3>
+        <div class="row">
+          <button type="button" id="make-invite" class="secondary">Create invite link</button>
+          <button type="button" id="copy-invite" class="secondary" hidden>Copy invite link</button>
+        </div>
+        <p class="copy-ok" id="copied" role="status"></p>
+      </div>
+      <p id="status" role="status"></p>
+      <p class="legal">Hosted free by Tyler Jewell. No data is kept. Everything is deleted 24 hours after creation. Map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors. <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>.</p>
+    </aside>
+    <div id="map" role="application" aria-label="Group ski map of Winter Park, Colorado"></div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
+  <script type="module" src="/map.js"></script>
+</body>
+</html>
