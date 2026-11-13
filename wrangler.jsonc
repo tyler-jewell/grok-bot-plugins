@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "skiherd-groups",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 1 }
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": {
+    "PUBLIC_BASE_URL": "https://skiherd.jewell-labs.com",
+    "GROUP_TTL_MS": "86400000",
+    "MAX_GROUP_MEMBERS": "10",
+    "CREATE_GROUP_PER_IP_PER_HOUR": "5"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "GROUP", "class_name": "SkiGroup" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SkiGroup"] }
+  ]
+}

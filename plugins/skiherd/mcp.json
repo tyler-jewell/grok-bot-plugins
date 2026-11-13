@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "skiherd": {
+      "url": "https://skiherd.jewell-labs.com/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
