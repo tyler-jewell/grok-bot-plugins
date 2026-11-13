@@ -143,7 +143,7 @@ export default {
         if (!action && request.method === "GET") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.info()));
+          return withSecurity(json(await group.info(token)));
         }
 
         if (!action && request.method === "DELETE") {
@@ -174,8 +174,11 @@ export default {
       // RPC may flatten custom errors; recover by name or message.
       const name = err instanceof Error ? err.name : "";
       const message = err instanceof Error ? err.message : "";
-      if (name === "GroupGoneError" || message === "group expired") return withSecurity(errorResponse(new GroupGoneError()));
+      if (name === "GroupGoneError" || message === "group expired" || message === "group deleted") {
+        return withSecurity(errorResponse(new GroupGoneError(message || "group expired")));
+      }
       if (name === "GroupNotFoundError" || message === "group not found") return withSecurity(errorResponse(new GroupNotFoundError()));
+      if (/no such table/i.test(message)) return withSecurity(errorResponse(new GroupGoneError("group deleted")));
       if (name === "UnauthorizedError" || message === "unauthorized" || message.startsWith("invite") || message === "invalid invite" || message.includes("only the creator")) {
         return withSecurity(errorResponse(new UnauthorizedError(message || "unauthorized")));
       }

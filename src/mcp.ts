@@ -30,14 +30,21 @@ function toolText(data: unknown) {
 
 function toolError(err: unknown) {
   const message = err instanceof Error ? err.message : "internal error";
+  const name = err instanceof Error ? err.name : "";
   let code = "error";
-  if (err instanceof GroupGoneError) code = "gone";
-  else if (err instanceof GroupNotFoundError) code = "not_found";
-  else if (err instanceof UnauthorizedError) code = "unauthorized";
-  else if (err instanceof GroupFullError) code = "full";
+  if (err instanceof GroupGoneError || name === "GroupGoneError" || message === "group expired" || message === "group deleted" || /no such table/i.test(message)) {
+    code = "gone";
+  } else if (err instanceof GroupNotFoundError || name === "GroupNotFoundError" || message === "group not found") {
+    code = "not_found";
+  } else if (err instanceof UnauthorizedError || name === "UnauthorizedError" || message === "unauthorized" || message.startsWith("invite") || message.includes("only the creator")) {
+    code = "unauthorized";
+  } else if (err instanceof GroupFullError || name === "GroupFullError" || message.includes("group is full")) {
+    code = "full";
+  }
+  const publicMessage = code === "gone" && /no such table/i.test(message) ? "group deleted" : message;
   return {
     isError: true,
-    content: [{ type: "text" as const, text: JSON.stringify({ error: code, message }) }],
+    content: [{ type: "text" as const, text: JSON.stringify({ error: code, message: publicMessage }) }],
   };
 }
 
