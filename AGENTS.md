@@ -11,8 +11,8 @@ Public Grok Bot plugins and the SkiHerd group-map Worker. Grok Bot does this wor
 ## Hosting
 
 - Production, when Tyler approves a deploy, is Tyler's **personal** Cloudflare account, Wrangler profile `personal`, `cf` CLI from `~/cf`.
-- Worker name is `skiherd-groups` (not `skiherd`, which is a different app on the same account).
-- Hostname is `skiherd.jewell-labs.com`. Keep the `custom_domain` route for that hostname in `wrangler.jsonc` so deploys do not drop it. Do not put `account_id` in `wrangler.jsonc`.
+- Worker name is `skiherd-groups` (not `skiherd`, which is a different app on the same account). Staging Worker is `skiherd-groups-staging`.
+- Staging hostname is `skiherd-groups.jewell-labs.com`, and that `custom_domain` route lives only under `env.staging` in `wrangler.jsonc`. There is no top-level route and no production `PUBLIC_BASE_URL`. The production hostname is not in the repo; render it at promote time with `scripts/render-production-config.mjs` from the owner's repository variable. Do not put `account_id` in `wrangler.jsonc`.
 - Users of the plugin do not need a Cloudflare account.
 
 ## Safety

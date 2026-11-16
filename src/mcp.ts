@@ -54,8 +54,10 @@ function stub(env: Env, groupToken: string) {
   return env.GROUP.get(env.GROUP.idFromName(groupToken));
 }
 
-function urls(env: Env, groupToken: string, opts?: { inviteToken?: string; memberToken?: string }) {
-  const base = env.PUBLIC_BASE_URL.replace(/\/$/, "");
+// Top-level wrangler config has no PUBLIC_BASE_URL. Staging and the production
+// render set it. Local dev and tests fall back to the request origin.
+function urls(request: Request, env: Env, groupToken: string, opts?: { inviteToken?: string; memberToken?: string }) {
+  const base = (env.PUBLIC_BASE_URL || new URL(request.url).origin).replace(/\/$/, "");
   return {
     host_url: `${base}/g/${groupToken}`,
     mcp_url: `${base}/mcp`,
@@ -144,7 +146,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
             const created = await stub(env, groupToken).create(host_name);
             return toolText({
               ...created,
-              ...urls(env, created.group_token, { memberToken: created.member_token }),
+              ...urls(request, env, created.group_token, { memberToken: created.member_token }),
               note: "Hosted free by Tyler Jewell. Bare minimum. No data is kept. Everything in this group is deleted 24 hours after creation. Do not share member tokens. This service is not affiliated with Winter Park Resort.",
             });
           } catch (err) {
@@ -170,7 +172,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
             const rl = await checkLimit(request, env, "invite");
             if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
             const inv = await stub(env, group_token).createInvite(member_token, { ttl_ms, max_uses });
-            return toolText({ ...inv, ...urls(env, group_token, { inviteToken: inv.invite_token }) });
+            return toolText({ ...inv, ...urls(request, env, group_token, { inviteToken: inv.invite_token }) });
           } catch (err) {
             return toolError(err);
           }
@@ -192,7 +194,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
             const rl = await checkLimit(request, env, "join");
             if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
             const joined = await stub(env, group_token).join(invite_token, display_name);
-            return toolText({ ...joined, group_token, ...urls(env, group_token, { memberToken: joined.member_token }) });
+            return toolText({ ...joined, group_token, ...urls(request, env, group_token, { memberToken: joined.member_token }) });
           } catch (err) {
             return toolError(err);
           }

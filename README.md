@@ -48,7 +48,7 @@ The MCP endpoint is `/mcp`. Tools that act on a group take `group_token` and `me
 
 ## Rate limits and caps
 
-Per client IP (from `CF-Connecting-IP`, normalised; `X-Forwarded-For` is ignored when it is present), per hour. HTTP and MCP share one bucket per action. Past the limit HTTP returns 429 with `retry-after`, and MCP returns an `isError` tool result with `error: "rate_limited"`. Override any default with the Worker var shown (invalid or below 1 falls back to the default).
+Per client IP (from `CF-Connecting-IP`, normalised; `X-Forwarded-For` is ignored when it is present), per hour. HTTP and MCP share one bucket per action. Past the limit HTTP returns 429 with `retry-after`, and MCP returns an `isError` tool result with `error: "rate_limited"`. Override any default with the Worker var shown (invalid or below 1 falls back to the default). The defaults are declared at the top level of `wrangler.jsonc` and again under `env.staging`, because Wrangler does not inherit `vars`.
 
 | Action | Default | Var |
 | --- | --- | --- |
@@ -93,7 +93,16 @@ test/                             # vitest + @cloudflare/vitest-plugin
 scripts/embed-skills.mjs          # keeps served skill text in sync with the repo files
 ```
 
-The Worker is named `skiherd-groups` so it does not collide with the separate `skiherd` app. Production is `https://skiherd.jewell-labs.com` on Tyler's personal Cloudflare account.
+The Worker is named `skiherd-groups` so it does not collide with the separate `skiherd` app. The committed Wrangler config does not pin a production hostname.
+
+## Environments
+
+`wrangler.jsonc` has no top-level route and no production `PUBLIC_BASE_URL`. `workers_dev` is false, so a custom domain is the only entry point.
+
+- **Staging** (`wrangler deploy --env staging`): Worker `skiherd-groups-staging`, custom domain `skiherd-groups.jewell-labs.com`, `PUBLIC_BASE_URL` `https://skiherd-groups.jewell-labs.com`. `env.staging` declares `vars`, the `GROUP` -> `SkiGroup` binding, and migrations again. Wrangler does not inherit `vars` or `durable_objects` into an environment. `assets` and `migrations` do inherit; migrations are repeated so staging cannot silently drift.
+- **Production:** the hostname comes from the repository variable the owner sets. It is not stored in this repo. `node scripts/render-production-config.mjs --hostname "$PRODUCTION_HOSTNAME"` writes a config whose only route is that hostname with `custom_domain: true`, and sets `PUBLIC_BASE_URL` to `https://` plus the hostname. The script exits non-zero when the hostname is empty, whitespace, a URL with a scheme, a path, a wildcard, a port, or the staging hostname.
+
+Do not deploy, and do not change DNS, unless Tyler has approved that deploy. Production uses the `personal` Wrangler profile and the `cf` CLI from `~/cf`.
 
 ## Develop
 
@@ -112,7 +121,7 @@ Do not deploy, and do not change DNS, unless Tyler has approved that deploy. Pro
 PR checks, then merge to `main`, then a staging candidate, then an explicit promote to production.
 
 1. **Pull request:** the `check` workflow (job `test`) must pass before merge.
-2. **Staging candidate:** when `check` succeeds on a push to `main`, the `staging` workflow runs `npm run build` (a credential-free `wrangler deploy --dry-run` bundle), uploads it as artifact `candidate-<sha>` (`dist/` holds the bundled Worker only; the `./public` assets are not in it), and prints the sha in the run summary. No tag is created per merge.
+2. **Staging candidate:** when `check` succeeds on a push to `main`, the `staging` workflow runs `npm run build` (a credential-free `wrangler deploy --dry-run --env=""` bundle of the top-level config), uploads it as artifact `candidate-<sha>` (`dist/` holds the bundled Worker only; the `./public` assets are not in it), and prints the sha in the run summary. No tag is created per merge. `check` also dry-runs `--env staging` and a rendered production config.
 3. **Promote:** run the `release` workflow manually (Actions tab, "Run workflow" on `main`) with `confirm` set to `promote-staging`. It refuses unless the sha is the current `main` head and has a non-expired `candidate-<sha>` artifact. A candidate is identified by that artifact, named for the commit, not by a staging run: for `workflow_run`-triggered runs GitHub reports the default branch head as the run's `head_sha`, which can be a different commit than the one built. The head of `main` is re-checked right before the tag is created, so a newer merge makes an older candidate stale. On success it creates the tag `prod/YYYY.MM.DD+N` (UTC date, N counts up from 1 per day) and a GitHub Release with generated notes. Promoting a sha that is already released exits cleanly and creates nothing.
 4. **Deploy (optional):** the `release` workflow has a `deploy` job that only runs when the repository variable `DEPLOY_TARGET` is set. It is currently a placeholder; deploying needs separate approval.
 

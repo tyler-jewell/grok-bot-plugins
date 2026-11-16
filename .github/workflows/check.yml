@@ -39,5 +39,11 @@ jobs:
         run: npm run check
       - name: Test
         run: npm test
+      - name: Dry-run staging and a rendered production config
+        run: |
+          # No Cloudflare credentials. groups.example.com is a dry-run hostname only.
+          npx wrangler deploy --dry-run --env staging --outdir "$RUNNER_TEMP/staging"
+          node scripts/render-production-config.mjs --hostname groups.example.com --out "$RUNNER_TEMP/prod.wrangler.json"
+          npx wrangler deploy --dry-run --config "$RUNNER_TEMP/prod.wrangler.json" --outdir "$RUNNER_TEMP/prod"
       - name: Audit production dependencies
         run: npm audit --audit-level=high --omit=dev
