@@ -1,6 +1,7 @@
 import { allLifts, allTrails } from "./mountain";
 import { rateLimit } from "./rate-limit";
 import { BUILD_INFO } from "./skills.generated";
+import { turnstileConfigured } from "./turnstile";
 
 export const HEALTH_PROBE_PREFIX = "__skiherd_health__";
 
@@ -22,6 +23,7 @@ export type HealthReport = {
     map_site: ComponentResult;
     osm_data: ComponentResult;
     rate_limiter: ComponentResult;
+    turnstile: ComponentResult;
     server_time: ComponentResult;
   };
   advice: string[];
@@ -123,8 +125,14 @@ export async function runHealthcheck(env: Env, request: Request, deps: HealthDep
   }
 
   const server_time = pass(now.toISOString());
+  // Visible either way. MCP create_group is never challenged.
+  const turnstile = pass(
+    turnstileConfigured(env.TURNSTILE_SECRET)
+      ? "turnstile: enabled on the HTTP landing page; MCP create_group is not challenged"
+      : "turnstile: disabled; MCP create_group is not challenged",
+  );
 
-  const components = { worker, durable_object, storage, alarm, map_site, osm_data, rate_limiter, server_time };
+  const components = { worker, durable_object, storage, alarm, map_site, osm_data, rate_limiter, turnstile, server_time };
   const advice = Object.values(components)
     .filter((c) => !c.ok && c.advice)
     .map((c) => c.advice as string);

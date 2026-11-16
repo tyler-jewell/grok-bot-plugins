@@ -1,7 +1,7 @@
 /**
  * Application-level rate limits (no Cloudflare Rate Limiting binding, so
  * `wrangler deploy` cannot provision account resources). Uses the Cache API.
- * Production should also add Turnstile on create_group before going public.
+ * HTTP group creation can also require Turnstile. MCP create_group stays on this limit.
  */
 
 export async function rateLimit(
