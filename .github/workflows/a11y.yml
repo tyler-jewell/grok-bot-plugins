@@ -1,0 +1,52 @@
+# Browser contrast and keyboard checks. Not a required status check.
+name: a11y
+
+on:
+  pull_request:
+    paths:
+      - "public/**"
+      - "test-a11y/**"
+      - "playwright.config.ts"
+      - "scripts/static-preview.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/a11y.yml"
+  push:
+    branches: [main]
+    paths:
+      - "public/**"
+      - "test-a11y/**"
+      - "playwright.config.ts"
+      - "scripts/static-preview.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/a11y.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser accessibility
+        run: npm run test:a11y

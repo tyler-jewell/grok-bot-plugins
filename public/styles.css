@@ -1,13 +1,19 @@
 :root {
-  --bg: #0f1b2d;
-  --panel: #15263d;
-  --ink: #f4f1ea;
-  --muted: #b7c0cc;
-  --line: #2c3f5a;
-  --accent: #2f6fed;
-  --warn: #e8c36a;
-  --danger: #c1121f;
-  --focus: #7cbcff;
+  color-scheme: light dark;
+  --bg: light-dark(#f4f1ea, #0f1b2d);
+  --panel: light-dark(#ffffff, #15263d);
+  --ink: light-dark(#142033, #f4f1ea);
+  --muted: light-dark(#3d4c63, #b7c0cc);
+  --line: light-dark(#c5ceda, #2c3f5a);
+  --accent: light-dark(#1d4ed8, #2f6fed);
+  --warn: light-dark(#6b4a00, #e8c36a);
+  --danger: light-dark(#9f1239, #f0b4bc);
+  --focus: light-dark(#1d4ed8, #7cbcff);
+  --link: light-dark(#0b3d91, #8ec0ff);
+  --field: light-dark(#ffffff, #0c1726);
+  --header: light-dark(#e7edf5, #0c1726);
+  --banner-bg: light-dark(#f3e2b8, #3a2d10);
+  --ok: light-dark(#0f6b3a, #8fdeaa);
   --radius: 12px;
   font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
 }
@@ -15,7 +21,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); }
 body { line-height: 1.5; }
-a { color: #8ec0ff; }
+a { color: var(--link); }
 a:focus-visible, button:focus-visible, input:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
@@ -34,7 +40,7 @@ header.app {
   gap: 1rem;
   padding: 0.75rem 1.1rem;
   border-bottom: 1px solid var(--line);
-  background: #0c1726;
+  background: var(--header);
 }
 .brand { display: flex; gap: 0.7rem; align-items: center; text-decoration: none; color: inherit; }
 .brand h1 { font-size: 1.15rem; margin: 0; letter-spacing: 0.02em; }
@@ -42,6 +48,7 @@ header.app {
 .logo {
   width: 36px; height: 36px; border-radius: 9px;
   background: linear-gradient(135deg, #2f6fed, #63c7ff);
+  color: #fff;
   display: grid; place-items: center; font-weight: 700;
 }
 
@@ -59,7 +66,7 @@ input[type="text"] {
   padding: 0.7rem 0.8rem;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: #0c1726;
+  background: var(--field);
   color: var(--ink);
   font-size: 1rem;
 }
@@ -80,7 +87,7 @@ button.secondary { background: transparent; border: 1px solid var(--line); color
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 .fine { color: var(--muted); font-size: 0.9rem; }
 .banner {
-  background: #3a2d10;
+  background: var(--banner-bg);
   color: var(--warn);
   padding: 0.6rem 1rem;
   font-size: 0.9rem;
@@ -96,7 +103,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .member.stale { opacity: 0.55; }
 .meta { font-size: 0.85rem; color: var(--muted); }
 .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin: 0.6rem 0; }
-.copy-ok { color: #8fdeaa; font-size: 0.85rem; }
+.copy-ok { color: var(--ok); font-size: 0.85rem; }
 #status { min-height: 1.2em; }
 
 .maplibregl-ctrl-attrib, .maplibregl-ctrl-attrib a { color: #222; }
