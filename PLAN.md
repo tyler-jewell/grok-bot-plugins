@@ -24,7 +24,7 @@ Tyler decided (4:28–4:33 PM America/Chicago, 13 November 2026) to host SkiHerd
 - **Privacy, consent, and children.** Location is sensitive. Request location once; reuse a known profile name; no covert tracking. Not directed at children under 13. Do not post heartbeats for someone who did not consent. `/privacy.html` and `/terms.html` ship in Phase 1.
 - **Trademark of "Winter Park".** Geographic reference only. User-facing surfaces state the project is not affiliated with Winter Park Resort (or Alterra). No resort logos or wordmarks.
 - **Terms of use and privacy policy.** Required before launch; included as static pages.
-- **Cloudflare logs retention.** Durable Object `deleteAll` removes product data. Cloudflare may still retain operational request logs per its policies. The privacy note says this. Application logs must not include raw coordinates or raw tokens.
+- **Cloudflare logs retention.** Durable Object `deleteAll` removes product data. Group and invite tokens appear in request URLs (`/g/<token>`, `?invite=`), so `wrangler.jsonc` sets observability, invocation logs, log persistence, and traces to off (decided in #21; `test/observability.test.ts` guards it). The app keeps no per-request logs and has no `console.*` calls with tokens or coordinates. Still observable: HTTP status and error bodies to callers, Workers dashboard metrics (requests, errors, CPU). Residual: Cloudflare may retain operational logs per its own policies, and live `wrangler tail` shows request URLs to account holders while it runs. The privacy note says this.
 - **Install path is still incomplete.** In-chat "install plugin from this repo URL" is not a documented Grok Bot feature. Marketplace submission and a pasted MCP URL are the reliable paths.
 
 ## Closed decisions
