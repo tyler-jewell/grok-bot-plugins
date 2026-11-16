@@ -1,0 +1,5 @@
+name: annotated-tag-object
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@3333333333333333333333333333333333333333 # v7.0.1

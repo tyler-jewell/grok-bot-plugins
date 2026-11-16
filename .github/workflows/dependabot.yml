@@ -1,0 +1,103 @@
+# SHA-pinned actions. Judge a Dependabot pull request from the base checkout.
+name: dependabot
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the base commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Judge lockfile and action pins
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ACTOR: ${{ github.actor }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          if [ "$ACTOR" != "dependabot[bot]" ] || [ "$PR_AUTHOR" != "dependabot[bot]" ]; then
+            echo "Not a Dependabot pull request; provenance has nothing to judge."
+            exit 0
+          fi
+          git fetch --no-tags origin "pull/${PR_NUMBER}/head"
+          fetched=$(git rev-parse FETCH_HEAD)
+          if [ "$fetched" != "$HEAD_SHA" ]; then
+            echo "Fetched head does not match the pull request head."
+            exit 1
+          fi
+          git diff --name-only HEAD FETCH_HEAD > "$RUNNER_TEMP/changed.txt"
+          node scripts/lockfile-provenance.mjs \
+            --repo "$GITHUB_WORKSPACE" \
+            --base-rev HEAD \
+            --head-rev FETCH_HEAD \
+            --changed "$RUNNER_TEMP/changed.txt"
+          node scripts/action-pins.mjs \
+            --repo "$GITHUB_WORKSPACE" \
+            --base-rev HEAD \
+            --head-rev FETCH_HEAD \
+            --changed "$RUNNER_TEMP/changed.txt"
+
+  automerge:
+    needs: provenance
+    if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout the base commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Enable auto-merge for a patch or minor npm bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          author=$(gh pr view "$PR_URL" --json author --jq .author.login)
+          if [ "$author" != "dependabot[bot]" ]; then
+            echo "Pull request author is not Dependabot."
+            exit 0
+          fi
+          git fetch --no-tags origin "pull/${PR_NUMBER}/head"
+          fetched=$(git rev-parse FETCH_HEAD)
+          if [ "$fetched" != "$HEAD_SHA" ]; then
+            echo "Fetched head does not match the pull request head."
+            exit 1
+          fi
+          git diff --name-only HEAD FETCH_HEAD > "$RUNNER_TEMP/changed.txt"
+          decision=$(node scripts/dependabot-class.mjs \
+            --repo "$GITHUB_WORKSPACE" \
+            --base-rev HEAD \
+            --head-rev FETCH_HEAD \
+            --changed "$RUNNER_TEMP/changed.txt")
+          echo "classification=$decision"
+          if [ "$decision" = "auto" ]; then
+            gh pr merge --auto --squash "$PR_URL"
+          fi
