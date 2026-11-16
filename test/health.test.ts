@@ -23,7 +23,7 @@ describe("healthcheck", () => {
     expect(body.service).toBe("skiherd-groups");
     expect(body.advice).toEqual([]);
     expect(Number.isNaN(Date.parse(body.checked_at))).toBe(false);
-    for (const name of ["worker", "durable_object", "storage", "alarm", "map_site", "osm_data", "rate_limiter", "server_time"]) {
+    for (const name of ["worker", "durable_object", "storage", "alarm", "map_site", "osm_data", "rate_limiter", "turnstile", "server_time"]) {
       expect(body.components[name]?.ok, name).toBe(true);
       expect(body.components[name]?.detail).toBeTypeOf("string");
     }

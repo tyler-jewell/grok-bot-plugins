@@ -59,6 +59,8 @@ Per client IP (from `CF-Connecting-IP`, normalised; `X-Forwarded-For` is ignored
 
 Each group stores at most `MAX_HEARTBEATS_PER_GROUP` heartbeat rows (default 20000, about 2000 fixes for each of 10 members over the 24-hour life). Past the cap new points are dropped, not stored; the response reports `dropped_over_cap`. Earlier points are kept.
 
+The landing page (`POST /api/groups`) checks a Cloudflare Turnstile token when the Worker secret `TURNSTILE_SECRET` is set. That secret is not a var and is not in this repo. MCP `create_group` is not challenged; it stays on the per-IP rate limit, because agents have no browser. With no secret configured, HTTP creation skips the check and `/health` reports `turnstile: disabled`. The public site key, when set as `TURNSTILE_SITE_KEY`, is written into the landing page only.
+
 ## HTTP API
 
 Auth `Bearer` means `Authorization: Bearer <member token>`. Member tokens are rejected in query strings. `:id` is the group token.
@@ -67,7 +69,7 @@ Auth `Bearer` means `Authorization: Bearer <member token>`. Member tokens are re
 | --- | --- | --- |
 | GET | `/health` | none (returns 503 when unhealthy) |
 | ANY | `/mcp` and `/mcp/*` | none (tools take tokens as arguments) |
-| POST | `/api/groups` | none (rate limited per IP) |
+| POST | `/api/groups` | none (rate limited per IP). When `TURNSTILE_SECRET` is set, the body must include a Turnstile token. MCP `create_group` is not challenged. |
 | GET | `/api/groups/:id` | Bearer |
 | DELETE | `/api/groups/:id` | Bearer |
 | POST | `/api/groups/:id/invites` | Bearer (rate limited) |

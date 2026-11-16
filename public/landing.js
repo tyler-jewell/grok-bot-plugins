@@ -9,10 +9,13 @@ form?.addEventListener("submit", async (event) => {
   button.disabled = true;
   status.textContent = "Creating group…";
   try {
+    const turnstile = form.querySelector("[name=cf-turnstile-response]");
+    const payload = { host_name: name };
+    if (turnstile instanceof HTMLInputElement) payload.cf_turnstile_token = turnstile.value;
     const res = await fetch("/api/groups", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ host_name: name }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {

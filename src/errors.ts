@@ -37,26 +37,29 @@ export function queryTokenRejected(): Response {
   );
 }
 
-export function securityHeaders(): Headers {
+export function securityHeaders(opts?: { turnstile?: boolean }): Headers {
   const h = new Headers();
   h.set("referrer-policy", "no-referrer");
   h.set("x-content-type-options", "nosniff");
   h.set("x-frame-options", "DENY");
   h.set("permissions-policy", "geolocation=(self), camera=(), microphone=()");
-  h.set(
-    "content-security-policy",
-    [
-      "default-src 'self'",
-      "script-src 'self' https://cdn.jsdelivr.net",
-      "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-      "img-src 'self' data: blob: https://tiles.openfreemap.org https://*.openfreemap.org",
-      "connect-src 'self' https://tiles.openfreemap.org https://*.openfreemap.org",
-      "font-src 'self' data: https://tiles.openfreemap.org https://*.openfreemap.org",
-      "worker-src 'self' blob:",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-    ].join("; "),
-  );
+  const scriptSrc = opts?.turnstile
+    ? "script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com"
+    : "script-src 'self' https://cdn.jsdelivr.net";
+  const directives = [
+    "default-src 'self'",
+    scriptSrc,
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "img-src 'self' data: blob: https://tiles.openfreemap.org https://*.openfreemap.org",
+    "connect-src 'self' https://tiles.openfreemap.org https://*.openfreemap.org",
+    "font-src 'self' data: https://tiles.openfreemap.org https://*.openfreemap.org",
+    "worker-src 'self' blob:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+  ];
+  // The Turnstile widget is an iframe. Allow it on the landing page only.
+  if (opts?.turnstile) directives.push("frame-src https://challenges.cloudflare.com");
+  h.set("content-security-policy", directives.join("; "));
   return h;
 }
 

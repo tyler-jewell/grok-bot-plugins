@@ -22,6 +22,7 @@
       <li>Group and invite tokens appear in request URLs, so SkiHerd turns off Cloudflare Workers invocation logs and traces and keeps no per-request logs of its own.</li>
       <li>Cloudflare, as the infrastructure provider, may still retain operational request logs according to its own policies, even after group storage is deleted. Those logs are not used by SkiHerd as a product database. While running, <code>wrangler tail</code> shows request URLs live to the account holder.</li>
       <li>Map tiles and the Winter Park trail list come from OpenStreetMap. This project is not affiliated with Winter Park Resort.</li>
+      <li>The landing page uses Cloudflare Turnstile when a site key is configured. Turnstile sees browser signals and the IP address, under Cloudflare's own policy. MCP calls, including create_group, do not use Turnstile.</li>
     </ul>
     <p>Questions: open an issue on the public repository. See also the <a href="/terms.html">terms</a>.</p>
   </main>

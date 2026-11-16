@@ -2,8 +2,9 @@ import { GroupFullError, GroupGoneError, GroupNotFoundError, SkiGroup, Unauthori
 import { bearer, errorResponse, json, publicBase, queryHasMemberToken, queryTokenRejected, securityHeaders } from "./errors";
 import { runHealthcheck } from "./health";
 import { handleMcp } from "./mcp";
-import { checkLimit } from "./rate-limit";
+import { checkLimit, clientIp } from "./rate-limit";
 import { randomToken } from "./tokens";
+import { landingDocument, verifyTurnstile, type Siteverify } from "./turnstile";
 
 export { SkiGroup };
 
@@ -17,17 +18,23 @@ async function limited(request: Request, env: Env, name: Parameters<typeof check
   return json({ error: "rate limited" }, 429, { "retry-after": String(rl.retryAfterSec) });
 }
 
-function withSecurity(res: Response): Response {
+function withSecurity(res: Response, opts?: { turnstile?: boolean }): Response {
   const out = new Response(res.body, res);
-  const sec = securityHeaders();
+  const sec = securityHeaders(opts);
   for (const [k, v] of sec) {
     if (!out.headers.has(k)) out.headers.set(k, v);
   }
   return out;
 }
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export type RequestDeps = {
+  /** Injected in tests. Production uses the Cloudflare siteverify endpoint. */
+  verifier?: Siteverify;
+  /** Injected in tests to prove a rejected token never calls create. */
+  createGroup?: (env: Env, groupToken: string, hostName: string) => Promise<Awaited<ReturnType<SkiGroup["create"]>>>;
+};
+
+export async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, deps: RequestDeps = {}): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -45,10 +52,14 @@ export default {
       if (path === "/api/groups" && request.method === "POST") {
         const blocked = await limited(request, env, "create");
         if (blocked) return withSecurity(blocked);
-        const body = (await request.json().catch(() => ({}))) as { host_name?: string };
+        const body = (await request.json().catch(() => ({}))) as { host_name?: string; cf_turnstile_token?: string };
         const hostName = (body.host_name ?? "Host").slice(0, 40);
+        const verdict = await verifyTurnstile(body.cf_turnstile_token, clientIp(request), env.TURNSTILE_SECRET, deps.verifier);
+        if (verdict === "fail") return withSecurity(json({ error: "verification failed" }, 403));
         const groupToken = randomToken(32);
-        const created = unwrapDomain(await stub(env, groupToken).create(hostName));
+        const created = deps.createGroup
+          ? await deps.createGroup(env, groupToken, hostName)
+          : unwrapDomain(await stub(env, groupToken).create(hostName));
         const base = publicBase(request, env);
         return withSecurity(
           json({
@@ -185,6 +196,14 @@ export default {
         return withSecurity(new Response(page.body, { status: page.status, headers }));
       }
 
+      if ((path === "/" || path === "/index.html") && request.method === "GET") {
+        const asset = await env.ASSETS.fetch(request);
+        const html = landingDocument(await asset.text(), env.TURNSTILE_SITE_KEY);
+        const headers = new Headers(asset.headers);
+        headers.delete("content-length");
+        return withSecurity(new Response(html, { status: asset.status, headers }), { turnstile: true });
+      }
+
       const asset = await env.ASSETS.fetch(request);
       return withSecurity(asset);
     } catch (err) {
@@ -202,5 +221,10 @@ export default {
       if (name === "GroupFullError" || message.includes("group is full")) return withSecurity(errorResponse(new GroupFullError()));
       return withSecurity(errorResponse(err));
     }
+}
+
+export default {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return handleRequest(request, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
