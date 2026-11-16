@@ -6,6 +6,7 @@ import {
   GroupGoneError,
   GroupNotFoundError,
   UnauthorizedError,
+  unwrapDomain,
   type HeartbeatIn,
 } from "./group";
 import { runHealthcheck } from "./health";
@@ -143,7 +144,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
             const rl = await checkLimit(request, env, "create");
             if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
             const groupToken = randomToken(32);
-            const created = await stub(env, groupToken).create(host_name);
+            const created = unwrapDomain(await stub(env, groupToken).create(host_name));
             return toolText({
               ...created,
               ...urls(request, env, created.group_token, { memberToken: created.member_token }),
@@ -171,7 +172,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
           try {
             const rl = await checkLimit(request, env, "invite");
             if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
-            const inv = await stub(env, group_token).createInvite(member_token, { ttl_ms, max_uses });
+            const inv = unwrapDomain(await stub(env, group_token).createInvite(member_token, { ttl_ms, max_uses }));
             return toolText({ ...inv, ...urls(request, env, group_token, { inviteToken: inv.invite_token }) });
           } catch (err) {
             return toolError(err);
@@ -193,7 +194,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
           try {
             const rl = await checkLimit(request, env, "join");
             if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
-            const joined = await stub(env, group_token).join(invite_token, display_name);
+            const joined = unwrapDomain(await stub(env, group_token).join(invite_token, display_name));
             return toolText({ ...joined, group_token, ...urls(request, env, group_token, { memberToken: joined.member_token }) });
           } catch (err) {
             return toolError(err);
@@ -242,7 +243,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
               difficulty: h.difficulty || null,
               place: h.place || null,
             }));
-            const result = await stub(env, group_token).postHeartbeat(member_token, cleaned);
+            const result = unwrapDomain(await stub(env, group_token).postHeartbeat(member_token, cleaned));
             return toolText(result);
           } catch (err) {
             return toolError(err);
@@ -258,7 +259,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token }) => {
           try {
-            return toolText(await stub(env, group_token).groupMap(member_token));
+            return toolText(unwrapDomain(await stub(env, group_token).groupMap(member_token)));
           } catch (err) {
             return toolError(err);
           }
@@ -273,7 +274,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token }) => {
           try {
-            return toolText(await stub(env, group_token).groupStats(member_token));
+            return toolText(unwrapDomain(await stub(env, group_token).groupStats(member_token)));
           } catch (err) {
             return toolError(err);
           }
@@ -289,7 +290,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token }) => {
           try {
-            return toolText(await stub(env, group_token).runsNotHit(member_token));
+            return toolText(unwrapDomain(await stub(env, group_token).runsNotHit(member_token)));
           } catch (err) {
             return toolError(err);
           }
@@ -304,7 +305,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token }) => {
           try {
-            return toolText(await stub(env, group_token).suggestNewRoute(member_token));
+            return toolText(unwrapDomain(await stub(env, group_token).suggestNewRoute(member_token)));
           } catch (err) {
             return toolError(err);
           }
@@ -320,7 +321,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token }) => {
           try {
-            return toolText(await stub(env, group_token).leave(member_token));
+            return toolText(unwrapDomain(await stub(env, group_token).leave(member_token)));
           } catch (err) {
             return toolError(err);
           }
@@ -336,7 +337,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token }) => {
           try {
-            return toolText(await stub(env, group_token).deleteGroup(member_token));
+            return toolText(unwrapDomain(await stub(env, group_token).deleteGroup(member_token)));
           } catch (err) {
             return toolError(err);
           }

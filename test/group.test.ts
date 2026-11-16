@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import sim from "../data/sim-heartbeats-5min.json";
-import { SkiGroup } from "../src/group";
+import { SkiGroup, isDomainFailure } from "../src/group";
 
 const summary = {
   tyler: { descent_ft: 7720, runs: 8, top_speed_mph: 12.7, distance_km: 21.48, points: 73, run_names: ["Sober Englishman", "Allan Phipps", "March Hare", "Cranmer", "Jack Kendrick", "Village Way", "Moose Wallow", "Village Way"] },
@@ -12,6 +12,11 @@ const summary = {
 
 function stub(name: string) {
   return env.GROUP.get(env.GROUP.idFromName(name));
+}
+
+function domainOf(value: unknown): { message: string; name: string } {
+  if (!isDomainFailure(value)) throw new Error("expected a domain failure");
+  return value;
 }
 
 
@@ -29,8 +34,8 @@ describe("SkiGroup", () => {
       await group.join(invite.invite_token, `Skier ${i + 2}`);
     }
     await runInDurableObject(group, async (inst: SkiGroup) => {
-      await expect(inst.join(invite.invite_token, "Eleventh")).rejects.toThrow(/full|already used/i);
-      await expect(inst.groupMap("not-a-token")).rejects.toThrow(/unauthorized/i);
+      expect(domainOf(await inst.join(invite.invite_token, "Eleventh")).message).toMatch(/full|already used/i);
+      expect(domainOf(await inst.groupMap("not-a-token")).message).toMatch(/unauthorized/i);
     });
     const full = await group.info(host.member_token);
     expect(full.member_count).toBe(10);
@@ -66,7 +71,7 @@ describe("SkiGroup", () => {
     expect(leftover.alarm).toBeNull();
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
-      await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
+      expect(domainOf(await inst.info("gone")).message).toMatch(/not found|deleted|expired/i);
     });
   });
 
@@ -199,7 +204,7 @@ describe("leave and delete", () => {
     expect(deleted.deleted_by.member_id).toBeTruthy();
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
-      await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
+      expect(domainOf(await inst.info("gone")).message).toMatch(/not found|deleted|expired/i);
     });
   });
 
@@ -211,7 +216,7 @@ describe("leave and delete", () => {
     expect(left.deleted_by).toMatchObject({ name: "Tyler" });
     await evictDurableObject(group);
     await runInDurableObject(group, async (inst: SkiGroup) => {
-      await expect(inst.info("gone")).rejects.toThrow(/not found|deleted|expired/i);
+      expect(domainOf(await inst.info("gone")).message).toMatch(/not found|deleted|expired/i);
     });
   });
 
@@ -265,12 +270,9 @@ describe("post-wipe error shapes and recreate (#7)", () => {
     expect(deleted).toMatchObject({ deleted: true });
 
     const after = await runInDurableObject(group, async (inst: SkiGroup) => {
-      try {
-        await inst.groupMap(host.member_token);
-        return { threw: false, message: "", name: "" };
-      } catch (err) {
-        return { threw: true, message: err instanceof Error ? err.message : String(err), name: err instanceof Error ? err.name : "" };
-      }
+      const value = await inst.groupMap(host.member_token);
+      if (!isDomainFailure(value)) return { threw: false, message: "", name: "" };
+      return { threw: true, message: value.message, name: value.name };
     });
     expect(after.threw).toBe(true);
     expect(after.message).not.toMatch(/no such table|SQLITE/i);
@@ -285,12 +287,9 @@ describe("post-wipe error shapes and recreate (#7)", () => {
     expect(map.members[0].lat).toBeNull();
 
     const stale = await runInDurableObject(group, async (inst: SkiGroup) => {
-      try {
-        await inst.groupMap(host.member_token);
-        return { threw: false, message: "" };
-      } catch (err) {
-        return { threw: true, message: err instanceof Error ? err.message : String(err) };
-      }
+      const value = await inst.groupMap(host.member_token);
+      if (!isDomainFailure(value)) return { threw: false, message: "" };
+      return { threw: true, message: value.message };
     });
     expect(stale.threw).toBe(true);
     expect(stale.message).toMatch(/unauthorized/i);
@@ -306,12 +305,9 @@ describe("post-wipe error shapes and recreate (#7)", () => {
     const ran = await runDurableObjectAlarm(group);
     expect(ran).toBe(true);
     const after = await runInDurableObject(group, async (inst: SkiGroup) => {
-      try {
-        await inst.groupMap(host.member_token);
-        return { threw: false, message: "" };
-      } catch (err) {
-        return { threw: true, message: err instanceof Error ? err.message : String(err) };
-      }
+      const value = await inst.groupMap(host.member_token);
+      if (!isDomainFailure(value)) return { threw: false, message: "" };
+      return { threw: true, message: value.message };
     });
     expect(after.threw).toBe(true);
     expect(after.message).not.toMatch(/no such table|SQLITE/i);
@@ -324,12 +320,9 @@ describe("post-wipe error shapes and recreate (#7)", () => {
     const left = await group.leave(host.member_token);
     expect(left).toMatchObject({ left: true, group_deleted: true });
     const after = await runInDurableObject(group, async (inst: SkiGroup) => {
-      try {
-        await inst.info(host.member_token);
-        return { threw: false, message: "" };
-      } catch (err) {
-        return { threw: true, message: err instanceof Error ? err.message : String(err) };
-      }
+      const value = await inst.info(host.member_token);
+      if (!isDomainFailure(value)) return { threw: false, message: "" };
+      return { threw: true, message: value.message };
     });
     expect(after.threw).toBe(true);
     expect(after.message).not.toMatch(/no such table|SQLITE/i);

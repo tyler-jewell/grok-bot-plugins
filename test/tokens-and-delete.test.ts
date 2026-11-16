@@ -1,7 +1,7 @@
 import { runInDurableObject, SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { AUTH_TIMEOUT_MS, SkiGroup } from "../src/group";
+import { AUTH_TIMEOUT_MS, SkiGroup, isDomainFailure } from "../src/group";
 
 function stub(name: string) {
   return env.GROUP.get(env.GROUP.idFromName(name));
@@ -128,12 +128,9 @@ describe("any current member can delete (#13)", () => {
     expect(deleted.deleted_by.member_id).toBe(guest.member_id);
 
     const hostSees = await (async () => {
-      try {
-        await group.groupMap(host.member_token);
-        return { threw: false, message: "" };
-      } catch (err) {
-        return { threw: true, message: err instanceof Error ? err.message : String(err) };
-      }
+      const value = await group.groupMap(host.member_token);
+      if (!isDomainFailure(value)) return { threw: false, message: "" };
+      return { threw: true, message: value.message };
     })();
     expect(hostSees.threw).toBe(true);
     expect(hostSees.message).toMatch(/deleted|expired|not found/i);

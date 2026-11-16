@@ -482,8 +482,8 @@ export class SkiGroup extends DurableObject<Env> {
   }
 
   async suggestNewRoute(memberToken: string): Promise<{ trail: string; difficulty: string; lift: string | null; rationale: string } | { none: true }> {
-    const map = await this.groupMap(memberToken);
-    const visited = (await this.runsNotHit(memberToken)).visited;
+    const map = unwrapDomain(await this.groupMap(memberToken));
+    const visited = unwrapDomain(await this.runsNotHit(memberToken)).visited;
     const withFix = map.members.find((m) => m.lat != null && m.lon != null);
     const from = withFix && withFix.lat != null && withFix.lon != null ? { lat: withFix.lat, lon: withFix.lon } : null;
     const suggestion = suggestRoute(from, visited);
@@ -753,4 +753,75 @@ export class GroupFullError extends Error {
     super("group is full (10 members)");
     this.name = "GroupFullError";
   }
+}
+
+/** Expected group errors returned across RPC. workerd logs a thrown DO method as an uncaught exception even when the caller catches it. */
+export interface DomainFailure {
+  code: "domain";
+  name: "GroupGoneError" | "GroupNotFoundError" | "UnauthorizedError" | "GroupFullError";
+  message: string;
+}
+
+const DOMAIN_NAMES = new Set<DomainFailure["name"]>([
+  "GroupGoneError",
+  "GroupNotFoundError",
+  "UnauthorizedError",
+  "GroupFullError",
+]);
+
+export function isDomainFailure(value: unknown): value is DomainFailure {
+  if (value === null || typeof value !== "object") return false;
+  const row = value as DomainFailure;
+  return row.code === "domain" && DOMAIN_NAMES.has(row.name) && typeof row.message === "string";
+}
+
+export function domainFailure(err: unknown): DomainFailure | undefined {
+  if (!(err instanceof Error) || !DOMAIN_NAMES.has(err.name as DomainFailure["name"])) return undefined;
+  return { code: "domain", name: err.name as DomainFailure["name"], message: err.message };
+}
+
+export function errorFromDomain(failure: DomainFailure): Error {
+  switch (failure.name) {
+    case "GroupGoneError":
+      return new GroupGoneError(failure.message);
+    case "GroupNotFoundError":
+      return new GroupNotFoundError();
+    case "UnauthorizedError":
+      return new UnauthorizedError(failure.message);
+    case "GroupFullError":
+      return new GroupFullError();
+  }
+}
+
+/** Turn a domain failure back into the error the HTTP and MCP handlers already map. */
+export function unwrapDomain<T>(value: T): T {
+  if (isDomainFailure(value)) throw errorFromDomain(value);
+  return value;
+}
+
+const RPC_METHODS = [
+  "info",
+  "createInvite",
+  "join",
+  "postHeartbeat",
+  "groupMap",
+  "groupStats",
+  "runsNotHit",
+  "suggestNewRoute",
+  "leave",
+  "deleteGroup",
+] as const;
+
+const proto = SkiGroup.prototype as unknown as Record<(typeof RPC_METHODS)[number], (...args: never[]) => Promise<unknown>>;
+for (const name of RPC_METHODS) {
+  const original = proto[name];
+  proto[name] = async function (this: SkiGroup, ...args: never[]): Promise<unknown> {
+    try {
+      return await original.apply(this, args);
+    } catch (err) {
+      const failure = domainFailure(err);
+      if (failure !== undefined) return failure;
+      throw err;
+    }
+  };
 }
