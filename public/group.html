@@ -26,7 +26,7 @@
     <aside class="sidebar" id="roster">
       <h2>The herd</h2>
       <p class="fine" id="count"></p>
-      <div id="members" role="list"></div>
+      <div id="members" role="list" aria-live="polite" aria-relevant="additions text"></div>
       <form id="join" hidden>
         <label for="join_name">Your display name</label>
         <input id="join_name" name="join_name" type="text" maxlength="40" autocomplete="nickname" required>

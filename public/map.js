@@ -1,3 +1,5 @@
+import { markerElement, renderMembers as drawRoster } from "./roster.js";
+
 const pathParts = location.pathname.split("/").filter(Boolean);
 const groupToken = pathParts[0] === "g" ? pathParts[1] : "";
 const params = new URLSearchParams(location.search);
@@ -73,30 +75,7 @@ function formatExpiry(iso) {
 }
 
 function renderMembers(members) {
-  membersEl.replaceChildren();
-  for (const m of members) {
-    const row = document.createElement("article");
-    row.className = "member" + (m.stale ? " stale" : "");
-    row.setAttribute("role", "listitem");
-    const dot = document.createElement("span");
-    dot.className = "dot";
-    dot.style.background = m.color;
-    dot.title = m.name;
-    const body = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = m.name;
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    const bits = [];
-    if (m.lift_or_trail) bits.push(m.lift_or_trail);
-    else if (m.place) bits.push(m.place);
-    else if (m.activity) bits.push(m.activity);
-    if (m.stale) bits.push("last seen a while ago");
-    meta.textContent = bits.join(" · ") || "No fix yet";
-    body.append(title, meta);
-    row.append(dot, body);
-    membersEl.append(row);
-  }
+  drawRoster(membersEl, members);
   countEl.textContent = `${members.length} of 10`;
 }
 
@@ -108,13 +87,7 @@ function upsertMarkers(members) {
     seen.add(m.id);
     let marker = markers.get(m.id);
     if (!marker) {
-      const el = document.createElement("div");
-      el.className = "dot";
-      el.style.width = "16px";
-      el.style.height = "16px";
-      el.style.background = m.color;
-      el.setAttribute("role", "img");
-      el.setAttribute("aria-label", m.name);
+      const el = markerElement(m);
       marker = new maplibregl.Marker({ element: el }).setLngLat([m.lon, m.lat]).addTo(map);
       markers.set(m.id, marker);
     } else {
