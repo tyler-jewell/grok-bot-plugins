@@ -1,4 +1,4 @@
-import { GroupFullError, GroupGoneError, GroupNotFoundError, SkiGroup, UnauthorizedError, type HeartbeatIn } from "./group";
+import { GroupFullError, GroupGoneError, GroupNotFoundError, SkiGroup, UnauthorizedError, unwrapDomain, type HeartbeatIn } from "./group";
 import { bearer, errorResponse, json, publicBase, queryHasMemberToken, queryTokenRejected, securityHeaders } from "./errors";
 import { runHealthcheck } from "./health";
 import { handleMcp } from "./mcp";
@@ -48,7 +48,7 @@ export default {
         const body = (await request.json().catch(() => ({}))) as { host_name?: string };
         const hostName = (body.host_name ?? "Host").slice(0, 40);
         const groupToken = randomToken(32);
-        const created = await stub(env, groupToken).create(hostName);
+        const created = unwrapDomain(await stub(env, groupToken).create(hostName));
         const base = publicBase(request, env);
         return withSecurity(
           json({
@@ -73,7 +73,7 @@ export default {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
           const body = (await request.json().catch(() => ({}))) as { ttl_ms?: number; max_uses?: number };
-          const inv = await group.createInvite(token, body);
+          const inv = unwrapDomain(await group.createInvite(token, body));
           const base = publicBase(request, env);
           return withSecurity(
             json({
@@ -88,7 +88,7 @@ export default {
           if (blocked) return withSecurity(blocked);
           const body = (await request.json().catch(() => ({}))) as { invite_token?: string; display_name?: string };
           if (!body.invite_token) return withSecurity(json({ error: "invite_token required" }, 400));
-          const joined = await group.join(body.invite_token, body.display_name ?? "Skier");
+          const joined = unwrapDomain(await group.join(body.invite_token, body.display_name ?? "Skier"));
           const base = publicBase(request, env);
           return withSecurity(json({ ...joined, group_token: groupToken, host_url: `${base}/g/${groupToken}`, member_map_url: `${base}/g/${groupToken}#t=${joined.member_token}` }, 201));
         }
@@ -120,49 +120,49 @@ export default {
             difficulty: p.difficulty || null,
             place: p.place || null,
           }));
-          return withSecurity(json(await group.postHeartbeat(token, cleaned)));
+          return withSecurity(json(unwrapDomain(await group.postHeartbeat(token, cleaned))));
         }
 
         if (action === "map" && request.method === "GET") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.groupMap(token)));
+          return withSecurity(json(unwrapDomain(await group.groupMap(token))));
         }
 
         if (action === "stats" && request.method === "GET") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.groupStats(token)));
+          return withSecurity(json(unwrapDomain(await group.groupStats(token))));
         }
 
         if (action === "runs-not-hit" && request.method === "GET") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.runsNotHit(token)));
+          return withSecurity(json(unwrapDomain(await group.runsNotHit(token))));
         }
 
         if (action === "suggest" && request.method === "GET") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.suggestNewRoute(token)));
+          return withSecurity(json(unwrapDomain(await group.suggestNewRoute(token))));
         }
 
         if (action === "leave" && (request.method === "POST" || request.method === "DELETE")) {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.leave(token)));
+          return withSecurity(json(unwrapDomain(await group.leave(token))));
         }
 
         if (!action && request.method === "GET") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.info(token)));
+          return withSecurity(json(unwrapDomain(await group.info(token))));
         }
 
         if (!action && request.method === "DELETE") {
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          return withSecurity(json(await group.deleteGroup(token)));
+          return withSecurity(json(unwrapDomain(await group.deleteGroup(token))));
         }
 
         return withSecurity(json({ error: "not found" }, 404));

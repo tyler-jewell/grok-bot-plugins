@@ -38,7 +38,10 @@ jobs:
       - name: Types
         run: npm run check
       - name: Test
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+          node scripts/assert-no-uncaught.mjs test.log
       - name: Dry-run staging and a rendered production config
         run: |
           # No Cloudflare credentials. groups.example.com is a dry-run hostname only.
