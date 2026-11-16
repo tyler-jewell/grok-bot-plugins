@@ -206,7 +206,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
             heartbeats: z
               .array(
                 z.object({
-                  ts: z.string(),
+                  ts: z.string().max(40),
                   lat: z.number(),
                   lon: z.number(),
                   alt_m: z.number().nullable().optional(),
@@ -214,10 +214,10 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
                   speed_mps: z.number().nullable().optional(),
                   heading_deg: z.number().nullable().optional(),
                   battery_pct: z.number().nullable().optional(),
-                  activity: z.string().nullable().optional(),
-                  place: z.string().nullable().optional(),
-                  lift_or_trail: z.string().nullable().optional(),
-                  difficulty: z.string().nullable().optional(),
+                  activity: z.string().max(80).nullable().optional(),
+                  place: z.string().max(80).nullable().optional(),
+                  lift_or_trail: z.string().max(80).nullable().optional(),
+                  difficulty: z.string().max(80).nullable().optional(),
                 }),
               )
               .min(1)

@@ -103,6 +103,9 @@ export default {
             : body.lat != null
               ? [body]
               : [];
+          if (points.some((p) => p === null || typeof p !== "object" || Array.isArray(p))) {
+            return withSecurity(json({ error: "heartbeats must be objects" }, 400));
+          }
           const cleaned = points.map((p) => ({
             ...p,
             lift_or_trail: p.lift_or_trail || null,
