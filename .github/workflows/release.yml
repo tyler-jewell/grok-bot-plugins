@@ -1,0 +1,105 @@
+# SHA-pinned actions. Do not switch to floating tags.
+# Promote the current main head (which must have a successful staging run)
+# to production: creates tag prod/YYYY.MM.DD+N and a GitHub Release.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type promote-staging to confirm"
+        required: true
+        type: string
+      sha:
+        description: "Commit to promote (default: current main head)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      CONFIRM: ${{ inputs.confirm }}
+      INPUT_SHA: ${{ inputs.sha }}
+      REF: ${{ github.ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Guards
+        id: guards
+        run: |
+          set -euo pipefail
+          main_head=$(gh api "repos/${REPO}/commits/main" --jq .sha)
+          sha="${INPUT_SHA:-$main_head}"
+          runs=0
+          if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            runs=$(gh api "repos/${REPO}/actions/workflows/staging.yml/runs?head_sha=${sha}&status=success&branch=main" --jq .total_count)
+          fi
+          node scripts/next-tag.mjs guard --confirm "$CONFIRM" --ref "$REF" \
+            --sha "$sha" --main-head "$main_head" --staging-runs "$runs"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+      - name: Tag and release
+        env:
+          SHA: ${{ steps.guards.outputs.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            git fetch --tags --force --quiet origin
+            plan=$(git tag --list 'prod/*' \
+              --format='%(refname:strip=2) %(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)' \
+              | node scripts/next-tag.mjs plan --sha "$SHA" --date "$(date -u +%Y.%m.%d)")
+            if [[ "$plan" == released=* ]]; then
+              tag="${plan#released=}"
+              echo "already released as ${tag}"
+              # A previous run may have created the tag but not the Release.
+              if ! gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+                gh release create "$tag" --repo "$REPO" --verify-tag --generate-notes --title "$tag"
+              fi
+              echo "Already released as \`${tag}\` (${SHA}). Nothing created." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            tag="${plan#next=}"
+            # Atomic: the refs API returns 422 if the tag already exists.
+            if gh api "repos/${REPO}/git/refs" -f "ref=refs/tags/${tag}" -f "sha=${SHA}" >/dev/null; then
+              gh release create "$tag" --repo "$REPO" --verify-tag --generate-notes --title "$tag"
+              echo "Released \`${tag}\` at ${SHA}." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "tag ${tag} could not be created (attempt ${attempt}); recomputing"
+          done
+          echo "could not create a release tag after 3 attempts" >&2
+          exit 1
+
+  deploy:
+    # Optional and pluggable: skipped unless the repo variable DEPLOY_TARGET is set.
+    needs: release
+    if: vars.DEPLOY_TARGET != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy placeholder
+        run: echo "Deploy target '${DEPLOY_TARGET}' is not implemented yet."
+        env:
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}

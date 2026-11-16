@@ -1,0 +1,61 @@
+# SHA-pinned actions. Do not switch to floating tags.
+# Candidate build: runs only after `check` succeeds on a push to main.
+name: staging
+
+on:
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    # Only a successful push-triggered check on main (not a PR whose branch is named main).
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build
+        # No Cloudflare credentials: wrangler --dry-run only bundles locally.
+        run: npm run build
+        env:
+          GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
+      - name: Upload candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-${{ github.event.workflow_run.head_sha }}
+          path: dist
+          if-no-files-found: error
+      - name: Summary
+        run: |
+          {
+            echo "## Staging candidate"
+            echo
+            echo "Candidate sha: \`${CANDIDATE_SHA}\`"
+            echo "Artifact: \`candidate-${CANDIDATE_SHA}\`"
+            echo
+            echo "Promote with the \`release\` workflow (confirm=promote-staging) while this sha is still the head of main."
+          } >> "$GITHUB_STEP_SUMMARY"
