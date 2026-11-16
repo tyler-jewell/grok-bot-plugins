@@ -16,14 +16,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
+      - name: Lint action pins (every uses is a 40-hex SHA)
+        run: |
+          # Matches `uses: owner/repo@ref` lines in workflows. Local `./` actions
+          # have no `@`, commented lines do not start with `uses:`, and a trailing
+          # `# vX` comment after the SHA is allowed. Prints file:line:text on failure.
+          if bad=$(grep -nE '^\s*-?\s*uses:\s*\S+@' .github/workflows/*.yml | grep -vE '@[0-9a-f]{40}( |$)'); then
+            echo "Actions must be pinned to a full 40-hex commit SHA:" >&2
+            echo "$bad" >&2
+            exit 1
+          fi
       - name: Install
         run: npm ci
       - name: Types
         run: npm run check
       - name: Test
         run: npm test
+      - name: Audit production dependencies
+        run: npm audit --audit-level=high --omit=dev
