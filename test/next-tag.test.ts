@@ -56,7 +56,7 @@ describe("parseTags / formatDate", () => {
 });
 
 describe("checkGuards", () => {
-  const ok = { confirm: "promote-staging", ref: "refs/heads/main", sha: A, mainHead: A, stagingRuns: 1 };
+  const ok = { confirm: "promote-staging", ref: "refs/heads/main", sha: A, mainHead: A, candidateArtifacts: 1 };
   it("passes when everything holds", () => {
     expect(checkGuards(ok)).toEqual({ ok: true });
   });
@@ -69,7 +69,7 @@ describe("checkGuards", () => {
   it("rejects a sha that is not the main head", () => {
     expect(checkGuards({ ...ok, sha: B }).ok).toBe(false);
   });
-  it("rejects a sha without a successful staging run", () => {
-    expect(checkGuards({ ...ok, stagingRuns: 0 }).ok).toBe(false);
+  it("rejects a sha without a candidate artifact", () => {
+    expect(checkGuards({ ...ok, candidateArtifacts: 0 }).ok).toBe(false);
   });
 });

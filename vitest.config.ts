@@ -7,4 +7,6 @@ export default defineConfig({
       wrangler: { configPath: "./wrangler.jsonc" },
     }),
   ],
+  // test-node/ runs in plain Node via vitest.node.config.ts.
+  test: { include: ["test/**/*.test.ts"] },
 });

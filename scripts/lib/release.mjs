@@ -34,10 +34,10 @@ export function findReleased(tags, sha) {
 }
 
 /** Promote guards. Returns { ok: true } or { ok: false, reason }. */
-export function checkGuards({ confirm, ref, sha, mainHead, stagingRuns }) {
+export function checkGuards({ confirm, ref, sha, mainHead, candidateArtifacts }) {
   if (confirm !== "promote-staging") return { ok: false, reason: "confirm must equal promote-staging" };
   if (ref !== "refs/heads/main") return { ok: false, reason: `must run from refs/heads/main, got ${ref}` };
   if (!sha || sha !== mainHead) return { ok: false, reason: `sha ${sha} is not the current main head ${mainHead}` };
-  if (!(stagingRuns >= 1)) return { ok: false, reason: `no successful staging run for ${sha}` };
+  if (!(candidateArtifacts >= 1)) return { ok: false, reason: `no candidate artifact for ${sha}` };
   return { ok: true };
 }
