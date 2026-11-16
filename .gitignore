@@ -4,5 +4,7 @@ node_modules/
 dist/
 coverage/
 worker-configuration.d.ts
+test-results/
+playwright-report/
 *.log
 .DS_Store
