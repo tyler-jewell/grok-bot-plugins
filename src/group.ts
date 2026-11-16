@@ -22,6 +22,17 @@ export type HeartbeatIn = {
   difficulty?: string | null;
 };
 
+/** Bounds applied to every heartbeat (#19). */
+export const HEARTBEAT_TEXT_MAX = 80;
+export const HEARTBEAT_TS_MAX_AGE_MS = 24 * 3_600_000 + 5 * 60_000; // group lifetime + skew
+export const HEARTBEAT_TS_MAX_FUTURE_MS = 5 * 60_000;
+
+// The cap counts UTF-16 code units (String.length), so slice() can split a surrogate pair.
+// HTTP/DO path truncates (lenient to clients); the MCP schema rejects over-long input (strict to agents).
+function clipText(v: string | null | undefined): string | null {
+  return typeof v === "string" ? v.slice(0, HEARTBEAT_TEXT_MAX) : null;
+}
+
 type MemberRow = {
   id: string;
   display_name: string;
@@ -312,13 +323,16 @@ export class SkiGroup extends DurableObject<Env> {
     if (!Array.isArray(points) || points.length === 0) return { accepted: 0 };
     if (points.length > 500) throw new Error("batch too large");
     let accepted = 0;
+    const now = Date.now();
     for (const p of points) {
+      if (p === null || typeof p !== "object") continue;
       const lat = finiteNumber(p.lat);
       const lon = finiteNumber(p.lon);
       if (lat == null || lon == null) continue;
       if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
       const ts = p.ts ? Date.parse(p.ts) : Date.now();
       if (!Number.isFinite(ts)) continue;
+      if (ts < now - HEARTBEAT_TS_MAX_AGE_MS || ts > now + HEARTBEAT_TS_MAX_FUTURE_MS) continue;
       this.ctx.storage.sql.exec(
         `INSERT INTO heartbeats (member_id, ts, lat, lon, alt_m, accuracy_m, speed_mps, heading_deg, battery_pct, activity, place, lift_or_trail, difficulty)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -331,10 +345,10 @@ export class SkiGroup extends DurableObject<Env> {
         finiteNumber(p.speed_mps),
         finiteNumber(p.heading_deg),
         finiteNumber(p.battery_pct),
-        p.activity ?? null,
-        p.place ?? null,
-        p.lift_or_trail ?? null,
-        p.difficulty ?? null,
+        clipText(p.activity),
+        clipText(p.place),
+        clipText(p.lift_or_trail),
+        clipText(p.difficulty),
       );
       accepted += 1;
     }

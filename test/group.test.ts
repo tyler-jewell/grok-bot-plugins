@@ -86,9 +86,15 @@ describe("SkiGroup", () => {
     tokens.set("alex", (await group.join(invite.invite_token, "Alex")).member_token);
     tokens.set("sam", (await group.join(invite.invite_token, "Sam")).member_token);
 
+    // Rebase the recorded 2026-01-17 day so its last fix is 10 minutes ago.
+    // A constant shift keeps relative spacing (and so every stat) unchanged
+    // while staying inside the production ts window (#19).
+    const lastTs = Math.max(...sim.heartbeats.map((h) => Date.parse(h.ts)));
+    const shift = Date.now() - 10 * 60_000 - lastTs;
+
     for (const [user, token] of tokens) {
       const points = (byUser.get(user) ?? []).map((h) => ({
-        ts: h.ts,
+        ts: new Date(Date.parse(h.ts) + shift).toISOString(),
         lat: h.lat,
         lon: h.lon,
         alt_m: h.alt_m,
@@ -391,6 +397,138 @@ describe("heartbeat validation (#9)", () => {
     expect(map.members[0].lon).toBeCloseTo(-105.76);
     expect(map.members[0].alt_m).toBeNull();
     expect(map.members[0].speed_mps).toBe(3);
+  });
+});
+
+describe("heartbeat bounds (#19)", () => {
+  it("drops heartbeats with ts outside [now-24h-skew, now+5min]", async () => {
+    const group = stub("test-ts-window-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const now = Date.now();
+    const res = await group.postHeartbeat(host.member_token, [
+      { ts: new Date(now - 60_000).toISOString(), lat: 39.88, lon: -105.76 },
+      { ts: "1000-01-01T00:00:00Z", lat: 10, lon: 10 },
+      { ts: new Date(now - 25 * 3_600_000).toISOString(), lat: 11, lon: 11 },
+      { ts: "9999-12-31T00:00:00Z", lat: 12, lon: 12 },
+      { ts: new Date(now + 10 * 60_000).toISOString(), lat: 13, lon: 13 },
+    ]);
+    expect(res.accepted).toBe(1);
+    const map = await group.groupMap(host.member_token);
+    expect(map.members[0].lat).toBeCloseTo(39.88);
+    expect(map.members[0].lon).toBeCloseTo(-105.76);
+  });
+
+  it("enforces the window edges: skew allowed on both sides, 1+ minute past each limit dropped", async () => {
+    // Limits: lower = now - 24h - 5min, upper = now + 5min. Offsets sit >= 1 minute from each limit.
+    const group = stub("test-ts-edges-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const now = Date.now();
+    const H = 3_600_000;
+    const M = 60_000;
+    const at = (off: number, lat: number) => ({ ts: new Date(now + off).toISOString(), lat, lon: -105.76 });
+    expect((await group.postHeartbeat(host.member_token, [at(-24 * H - 2 * M, 20)])).accepted).toBe(1); // inside skew
+    expect((await group.postHeartbeat(host.member_token, [at(-24 * H - 6 * M, 21)])).accepted).toBe(0); // past skew
+    expect((await group.postHeartbeat(host.member_token, [at(4 * M, 22)])).accepted).toBe(1);
+    expect((await group.postHeartbeat(host.member_token, [at(6 * M, 23)])).accepted).toBe(0);
+  });
+
+  it("truncates free-text fields to 80 characters when stored", async () => {
+    const group = stub("test-cap-text-" + crypto.randomUUID());
+    const host = await group.create("Tyler");
+    const long = "x".repeat(200);
+    const res = await group.postHeartbeat(host.member_token, [
+      { ts: new Date().toISOString(), lat: 39.88, lon: -105.76, activity: long, place: long, lift_or_trail: long, difficulty: long },
+    ]);
+    expect(res.accepted).toBe(1);
+    const rows = await runInDurableObject(group, async (_inst: SkiGroup, state) =>
+      state.storage.sql
+        .exec<{ activity: string; place: string; lift_or_trail: string; difficulty: string }>(
+          "SELECT activity, place, lift_or_trail, difficulty FROM heartbeats",
+        )
+        .toArray(),
+    );
+    expect(rows).toHaveLength(1);
+    for (const v of Object.values(rows[0])) expect(v.length).toBe(80);
+  });
+
+  it("rejects 81-character free-text fields in the post_heartbeat MCP schema", async () => {
+    const hdrs = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+    const call = async (id: number, name: string, args: object, sid?: string) => {
+      const res = await SELF.fetch("https://skiherd.jewell-labs.com/mcp", {
+        method: "POST",
+        headers: sid ? { ...hdrs, "mcp-session-id": sid } : hdrs,
+        body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }),
+      });
+      const raw = await res.text();
+      const data = raw.split("\n").find((l) => l.startsWith("data:"));
+      return JSON.parse(data ? data.slice(5) : raw) as { result?: { isError?: boolean; content?: Array<{ text: string }> }; error?: unknown };
+    };
+    const created = JSON.parse((await call(1, "create_group", { host_name: "Tyler" })).result!.content![0].text) as {
+      group_token: string;
+      member_token: string;
+    };
+    for (const field of ["activity", "place", "lift_or_trail", "difficulty"]) {
+      const bad = await call(2, "post_heartbeat", {
+        group_token: created.group_token,
+        member_token: created.member_token,
+        heartbeats: [{ ts: new Date().toISOString(), lat: 39.88, lon: -105.76, [field]: "y".repeat(81) }],
+      });
+      expect(bad.error !== undefined || bad.result?.isError === true, field).toBe(true);
+    }
+    const ok = await call(3, "post_heartbeat", {
+      group_token: created.group_token,
+      member_token: created.member_token,
+      heartbeats: [{ ts: new Date().toISOString(), lat: 39.88, lon: -105.76, activity: "y".repeat(80) }],
+    });
+    expect(ok.result?.isError).toBeFalsy();
+    expect(JSON.parse(ok.result!.content![0].text)).toEqual({ accepted: 1 });
+  });
+
+  it("returns 400, not 5xx, for null or non-object heartbeat entries over HTTP", async () => {
+    const created = await SELF.fetch("https://skiherd.jewell-labs.com/api/groups", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ host_name: "Tyler" }),
+    });
+    const body = await created.json<{ group_token: string; member_token: string }>();
+    const url = `https://skiherd.jewell-labs.com/api/groups/${body.group_token}/heartbeats`;
+    for (const heartbeats of [[null, 5, "x"], [null], [[1, 2]]]) {
+      const res = await SELF.fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${body.member_token}` },
+        body: JSON.stringify({ heartbeats }),
+      });
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type")).toMatch(/json/);
+      expect(await res.json()).toHaveProperty("error");
+    }
+  });
+
+  it("returns 400 JSON for non-object bodies and non-array heartbeats over HTTP", async () => {
+    const created = await SELF.fetch("https://skiherd.jewell-labs.com/api/groups", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ host_name: "Tyler" }),
+    });
+    const g = await created.json<{ group_token: string; member_token: string }>();
+    const url = `https://skiherd.jewell-labs.com/api/groups/${g.group_token}/heartbeats`;
+    const post = (raw: string) =>
+      SELF.fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${g.member_token}` },
+        body: raw,
+      });
+    for (const raw of ["null", "[]", '"x"', "5", '{"heartbeats":"x"}', '{"heartbeats":{}}', '{"heartbeats":null}']) {
+      const res = await post(raw);
+      expect(res.status, raw).toBe(400);
+      expect(res.headers.get("content-type")).toMatch(/json/);
+      expect(await res.json(), raw).toHaveProperty("error");
+    }
+    const ok = await post(JSON.stringify({ heartbeats: [{ ts: new Date().toISOString(), lat: 39.88, lon: -105.76 }] }));
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ accepted: 1 });
+    const nul = await post(JSON.stringify({ heartbeats: [null] }));
+    expect(nul.status).toBe(400);
   });
 });
 

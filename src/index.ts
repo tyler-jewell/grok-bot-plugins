@@ -97,12 +97,22 @@ export default {
           if (blocked) return withSecurity(blocked);
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
-          const body = (await request.json().catch(() => ({}))) as { heartbeats?: HeartbeatIn[] } & HeartbeatIn;
+          const raw: unknown = await request.json().catch(() => ({}));
+          if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+            return withSecurity(json({ error: "body must be a JSON object" }, 400));
+          }
+          const body = raw as { heartbeats?: unknown } & HeartbeatIn;
+          if ("heartbeats" in body && !Array.isArray(body.heartbeats)) {
+            return withSecurity(json({ error: "heartbeats must be an array" }, 400));
+          }
           const points: HeartbeatIn[] = Array.isArray(body.heartbeats)
-            ? body.heartbeats
+            ? (body.heartbeats as HeartbeatIn[])
             : body.lat != null
               ? [body]
               : [];
+          if (points.some((p) => p === null || typeof p !== "object" || Array.isArray(p))) {
+            return withSecurity(json({ error: "heartbeats must be objects" }, 400));
+          }
           const cleaned = points.map((p) => ({
             ...p,
             lift_or_trail: p.lift_or_trail || null,
