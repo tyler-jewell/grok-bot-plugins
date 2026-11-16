@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { intFromEnv } from "./rate-limit";
 import { runsNotHit, suggestRoute } from "./mountain";
 import { randomToken, sha256Hex, timingSafeEqual } from "./tokens";
 
@@ -23,6 +24,8 @@ export type HeartbeatIn = {
 };
 
 /** Bounds applied to every heartbeat (#19). */
+/** Default per-group row cap: ~2000 fixes per member for a full 10-member group over its 24h life. */
+export const DEFAULT_MAX_HEARTBEATS_PER_GROUP = 20_000;
 export const HEARTBEAT_TEXT_MAX = 80;
 export const HEARTBEAT_TS_MAX_AGE_MS = 24 * 3_600_000 + 5 * 60_000; // group lifetime + skew
 export const HEARTBEAT_TS_MAX_FUTURE_MS = 5 * 60_000;
@@ -115,6 +118,11 @@ export class SkiGroup extends DurableObject<Env> {
 
   private maxMembers(): number {
     return Number(this.env.MAX_GROUP_MEMBERS ?? 10);
+  }
+
+  /** Per-group heartbeat row cap. Past it, new points are dropped (not stored). Bounds DO storage for the 24h life. */
+  private maxHeartbeats(): number {
+    return intFromEnv(this.env, "MAX_HEARTBEATS_PER_GROUP", DEFAULT_MAX_HEARTBEATS_PER_GROUP);
   }
 
   private ttlMs(): number {
@@ -318,12 +326,15 @@ export class SkiGroup extends DurableObject<Env> {
     };
   }
 
-  async postHeartbeat(memberToken: string, points: HeartbeatIn[]): Promise<{ accepted: number }> {
+  async postHeartbeat(memberToken: string, points: HeartbeatIn[]): Promise<{ accepted: number; dropped_over_cap?: number }> {
     const member = await this.authMember(memberToken);
     if (!Array.isArray(points) || points.length === 0) return { accepted: 0 };
     if (points.length > 500) throw new Error("batch too large");
     let accepted = 0;
+    let dropped = 0;
     const now = Date.now();
+    const cap = this.maxHeartbeats();
+    let rows = this.ctx.storage.sql.exec<{ c: number }>("SELECT COUNT(*) AS c FROM heartbeats").one().c;
     for (const p of points) {
       if (p === null || typeof p !== "object") continue;
       const lat = finiteNumber(p.lat);
@@ -333,6 +344,11 @@ export class SkiGroup extends DurableObject<Env> {
       const ts = p.ts ? Date.parse(p.ts) : Date.now();
       if (!Number.isFinite(ts)) continue;
       if (ts < now - HEARTBEAT_TS_MAX_AGE_MS || ts > now + HEARTBEAT_TS_MAX_FUTURE_MS) continue;
+      if (rows >= cap) {
+        dropped += 1;
+        continue;
+      }
+      rows += 1;
       this.ctx.storage.sql.exec(
         `INSERT INTO heartbeats (member_id, ts, lat, lon, alt_m, accuracy_m, speed_mps, heading_deg, battery_pct, activity, place, lift_or_trail, difficulty)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -353,7 +369,7 @@ export class SkiGroup extends DurableObject<Env> {
       accepted += 1;
     }
     if (accepted) this.broadcast({ type: "heartbeat", member_id: member.id });
-    return { accepted };
+    return dropped ? { accepted, dropped_over_cap: dropped } : { accepted };
   }
 
   async groupMap(memberToken: string): Promise<{

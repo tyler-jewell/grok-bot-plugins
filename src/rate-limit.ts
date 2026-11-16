@@ -36,8 +36,44 @@ export async function rateLimit(
   return { ok: true };
 }
 
+/**
+ * Client address for limiter keys. CF-Connecting-IP is set by Cloudflare's edge
+ * (a client-supplied copy is overwritten), so it wins. X-Forwarded-For is only
+ * a fallback for non-Cloudflare dev runs and is ignored whenever CF-Connecting-IP
+ * is present. Normalised (trim, lowercase) so "2001:DB8::1" and " 2001:db8::1 "
+ * share one bucket.
+ */
 export function clientIp(request: Request): string {
-  return request.headers.get("CF-Connecting-IP") ?? request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ?? "local";
+  const raw = request.headers.get("CF-Connecting-IP") ?? request.headers.get("X-Forwarded-For")?.split(",")[0] ?? "";
+  return raw.trim().toLowerCase() || "local";
+}
+
+/** Default per-IP limits, per hour. Override with the named Worker var; invalid or < 1 falls back. */
+export const LIMITS = {
+  create: { env: "CREATE_GROUP_PER_IP_PER_HOUR", default: 5 },
+  join: { env: "JOIN_PER_IP_PER_HOUR", default: 20 },
+  invite: { env: "INVITE_PER_IP_PER_HOUR", default: 20 },
+  hb: { env: "HEARTBEAT_PER_IP_PER_HOUR", default: 120 },
+} as const;
+export const RATE_WINDOW_MS = 60 * 60 * 1000;
+
+export function intFromEnv(env: unknown, name: string, fallback: number): number {
+  const n = Number((env as Record<string, unknown>)[name]);
+  return Number.isInteger(n) && n >= 1 ? n : fallback;
+}
+
+/**
+ * Shared by HTTP and MCP so both entry points draw from the same per-IP bucket
+ * (alternating transports cannot double the allowance).
+ */
+export async function checkLimit(
+  request: Request,
+  env: unknown,
+  name: keyof typeof LIMITS,
+): Promise<{ ok: true } | { ok: false; retryAfterSec: number }> {
+  const cfg = LIMITS[name];
+  const ip = await hashIp(clientIp(request));
+  return rateLimit(caches.default, `${name}:${ip}`, intFromEnv(env, cfg.env, cfg.default), RATE_WINDOW_MS);
 }
 
 export async function hashIp(ip: string): Promise<string> {
