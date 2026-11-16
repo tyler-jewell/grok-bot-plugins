@@ -214,6 +214,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
                   speed_mps: z.number().nullable().optional(),
                   heading_deg: z.number().nullable().optional(),
                   battery_pct: z.number().nullable().optional(),
+                  // 80 = UTF-16 code units, same cap as clipText in group.ts. MCP rejects over-long text so the
+                  // agent can fix it; the HTTP/DO path truncates instead.
                   activity: z.string().max(80).nullable().optional(),
                   place: z.string().max(80).nullable().optional(),
                   lift_or_trail: z.string().max(80).nullable().optional(),

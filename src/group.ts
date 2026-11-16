@@ -27,6 +27,8 @@ export const HEARTBEAT_TEXT_MAX = 80;
 export const HEARTBEAT_TS_MAX_AGE_MS = 24 * 3_600_000 + 5 * 60_000; // group lifetime + skew
 export const HEARTBEAT_TS_MAX_FUTURE_MS = 5 * 60_000;
 
+// The cap counts UTF-16 code units (String.length), so slice() can split a surrogate pair.
+// HTTP/DO path truncates (lenient to clients); the MCP schema rejects over-long input (strict to agents).
 function clipText(v: string | null | undefined): string | null {
   return typeof v === "string" ? v.slice(0, HEARTBEAT_TEXT_MAX) : null;
 }
