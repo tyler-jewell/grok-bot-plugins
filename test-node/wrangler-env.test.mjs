@@ -103,8 +103,14 @@ describe("env.staging is the only committed environment", () => {
   });
 
   it("redeclares the Durable Object binding and v1 migration", () => {
-    expect(staging?.durable_objects?.bindings).toEqual([{ name: "GROUP", class_name: "SkiGroup" }]);
-    expect(staging?.migrations).toEqual([{ tag: "v1", new_sqlite_classes: ["SkiGroup"] }]);
+    expect(staging?.durable_objects?.bindings).toEqual([
+      { name: "GROUP", class_name: "SkiGroup" },
+      { name: "COUNTERS", class_name: "DailyCounters" },
+    ]);
+    expect(staging?.migrations).toEqual([
+      { tag: "v1", new_sqlite_classes: ["SkiGroup"] },
+      { tag: "v2", new_sqlite_classes: ["DailyCounters"] },
+    ]);
   });
 
   it("redeclares non-inherited vars so staging does not drop them", () => {

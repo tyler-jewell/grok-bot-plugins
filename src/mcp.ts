@@ -9,6 +9,7 @@ import {
   unwrapDomain,
   type HeartbeatIn,
 } from "./group";
+import { limiterCounter, noteCounter } from "./counters";
 import { runHealthcheck } from "./health";
 import { checkLimit } from "./rate-limit";
 import { MCP_INSTRUCTIONS, SKILL_NAMES, SKILLS, type SkillName } from "./skills.generated";
@@ -53,6 +54,13 @@ function toolError(err: unknown) {
 
 function stub(env: Env, groupToken: string) {
   return env.GROUP.get(env.GROUP.idFromName(groupToken));
+}
+
+async function rejectIfLimited(request: Request, env: Env, name: "create" | "join" | "invite" | "hb") {
+  const rl = await checkLimit(request, env, name);
+  if (rl.ok) return null;
+  await noteCounter(env, limiterCounter(name));
+  return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
 }
 
 // Top-level wrangler config has no PUBLIC_BASE_URL. Staging and the production
@@ -141,8 +149,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ host_name }) => {
           try {
-            const rl = await checkLimit(request, env, "create");
-            if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
+            const limited = await rejectIfLimited(request, env, "create");
+            if (limited) return limited;
             const groupToken = randomToken(32);
             const created = unwrapDomain(await stub(env, groupToken).create(host_name));
             return toolText({
@@ -170,8 +178,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token, ttl_ms, max_uses }) => {
           try {
-            const rl = await checkLimit(request, env, "invite");
-            if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
+            const limited = await rejectIfLimited(request, env, "invite");
+            if (limited) return limited;
             const inv = unwrapDomain(await stub(env, group_token).createInvite(member_token, { ttl_ms, max_uses }));
             return toolText({ ...inv, ...urls(request, env, group_token, { inviteToken: inv.invite_token }) });
           } catch (err) {
@@ -192,8 +200,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, invite_token, display_name }) => {
           try {
-            const rl = await checkLimit(request, env, "join");
-            if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
+            const limited = await rejectIfLimited(request, env, "join");
+            if (limited) return limited;
             const joined = unwrapDomain(await stub(env, group_token).join(invite_token, display_name));
             return toolText({ ...joined, group_token, ...urls(request, env, group_token, { memberToken: joined.member_token }) });
           } catch (err) {
@@ -235,8 +243,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token, heartbeats }) => {
           try {
-            const rl = await checkLimit(request, env, "hb");
-            if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
+            const limited = await rejectIfLimited(request, env, "hb");
+            if (limited) return limited;
             const cleaned: HeartbeatIn[] = heartbeats.map((h) => ({
               ...h,
               lift_or_trail: h.lift_or_trail || null,

@@ -23,7 +23,7 @@ function run(extra) {
     "--token-present", "1",
     "--issue-18-state", "CLOSED",
     "--sha", sha,
-    "--staging-record", record(dir, { sha, versionId: "v", migrationTag: "v1" }),
+    "--staging-record", record(dir, { sha, versionId: "v", migrationTag: "v2" }),
     ...extra,
   ];
   const result = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
