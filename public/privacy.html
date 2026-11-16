@@ -17,7 +17,8 @@
     <ul>
       <li>We do not ask for an email, phone number, or Cloudflare account.</li>
       <li>A group stores only display names, unguessable tokens (as hashes), and the location points members post.</li>
-      <li>Every group, and all of its data, is deleted automatically 24 hours after the group is created. No data is kept after that deletion.</li>
+      <li>Every group, and all of its data, is deleted automatically 24 hours after the group is created.</li>
+      <li>After that, SkiHerd keeps only aggregate daily counters for 35 days: groups created, groups deleted by a member, groups expired by the alarm, rate-limit rejections by limiter name, and request errors by status class. Each counter is an integer. They hold no tokens, group ids, names, coordinates, IP addresses, or user agents.</li>
       <li>Do not post a child’s location, or anyone’s location, without their informed consent. This service is not directed at children under 13.</li>
       <li>Group and invite tokens appear in request URLs, so SkiHerd turns off Cloudflare Workers invocation logs and traces and keeps no per-request logs of its own.</li>
       <li>Cloudflare, as the infrastructure provider, may still retain operational request logs according to its own policies, even after group storage is deleted. Those logs are not used by SkiHerd as a product database. While running, <code>wrangler tail</code> shows request URLs live to the account holder.</li>

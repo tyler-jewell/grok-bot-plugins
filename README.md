@@ -2,7 +2,7 @@
 
 Public Grok Bot plugins, starting with **SkiHerd**.
 
-**Hosted free by Tyler Jewell, bare minimum, no data kept, everything deleted after 24h.**
+**Hosted free by Tyler Jewell, bare minimum. Group data is deleted after 24h. Only aggregate counters are kept, for 35 days.**
 
 **Connect any agent: add MCP URL https://skiherd.jewell-labs.com/mcp, then say 'run the SkiHerd setup'.**
 
@@ -23,7 +23,7 @@ This project is not affiliated with Winter Park Resort. Trail and lift geometrie
 - Ask MCP tools for the map, group stats, runs not hit, and a suggested new route.
 - A member can leave; any current member can delete the group now. Otherwise the group self-deletes 24 hours after creation.
 
-Each group lives in its own SQLite-backed Cloudflare Durable Object. Twenty-four hours after the group is created, the object deletes all of its storage. Nothing is kept.
+Each group lives in its own SQLite-backed Cloudflare Durable Object. Twenty-four hours after the group is created, the object deletes all of its storage. SkiHerd keeps aggregate daily counters for 35 days: groups created, groups deleted by a member, groups expired by the alarm, rate-limit rejections by limiter name, and request errors by status class. Those counters are integers only. They hold no tokens, group ids, names, coordinates, IP addresses, or user agents. `GET /counters` returns the aggregates.
 
 Phase 1 authentication is unguessable group and member tokens (no email, no phone). The OAuth upgrade path is documented in `src/mcp.ts`.
 
@@ -101,7 +101,7 @@ The Worker is named `skiherd-groups` so it does not collide with the separate `s
 
 `wrangler.jsonc` has no top-level route and no production `PUBLIC_BASE_URL`. `workers_dev` is false, so a custom domain is the only entry point.
 
-- **Staging** (`wrangler deploy --env staging`): Worker `skiherd-groups-staging`, custom domain `skiherd-groups.jewell-labs.com`, `PUBLIC_BASE_URL` `https://skiherd-groups.jewell-labs.com`. `env.staging` declares `vars`, the `GROUP` -> `SkiGroup` binding, and migrations again. Wrangler does not inherit `vars` or `durable_objects` into an environment. `assets` and `migrations` do inherit; migrations are repeated so staging cannot silently drift.
+- **Staging** (`wrangler deploy --env staging`): Worker `skiherd-groups-staging`, custom domain `skiherd-groups.jewell-labs.com`, `PUBLIC_BASE_URL` `https://skiherd-groups.jewell-labs.com`. `env.staging` declares `vars`, the `GROUP` -> `SkiGroup` and `COUNTERS` -> `DailyCounters` bindings, and migrations again. Wrangler does not inherit `vars` or `durable_objects` into an environment. `assets` and `migrations` do inherit; migrations are repeated so staging cannot silently drift.
 - **Production:** the hostname comes from the repository variable the owner sets. It is not stored in this repo. `node scripts/render-production-config.mjs --hostname "$PRODUCTION_HOSTNAME"` writes a config whose only route is that hostname with `custom_domain: true`, and sets `PUBLIC_BASE_URL` to `https://` plus the hostname. The script exits non-zero when the hostname is empty, whitespace, a URL with a scheme, a path, a wildcard, a port, or the staging hostname.
 
 Do not deploy, and do not change DNS, unless Tyler has approved that deploy. Production uses the `personal` Wrangler profile and the `cf` CLI from `~/cf`.

@@ -29,11 +29,13 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "GROUP", "class_name": "SkiGroup" }
+      { "name": "GROUP", "class_name": "SkiGroup" },
+      { "name": "COUNTERS", "class_name": "DailyCounters" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SkiGroup"] }
+    { "tag": "v1", "new_sqlite_classes": ["SkiGroup"] },
+    { "tag": "v2", "new_sqlite_classes": ["DailyCounters"] }
   ],
   // No top-level route or PUBLIC_BASE_URL. Production hostname is rendered, not committed.
   "env": {
@@ -56,11 +58,13 @@
       },
       "durable_objects": {
         "bindings": [
-          { "name": "GROUP", "class_name": "SkiGroup" }
+          { "name": "GROUP", "class_name": "SkiGroup" },
+          { "name": "COUNTERS", "class_name": "DailyCounters" }
         ]
       },
       "migrations": [
-        { "tag": "v1", "new_sqlite_classes": ["SkiGroup"] }
+        { "tag": "v1", "new_sqlite_classes": ["SkiGroup"] },
+        { "tag": "v2", "new_sqlite_classes": ["DailyCounters"] }
       ]
     }
   }

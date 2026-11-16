@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { noteCounter } from "./counters";
 import { intFromEnv } from "./rate-limit";
 import { runsNotHit, suggestRoute } from "./mountain";
 import { randomToken, sha256Hex, timingSafeEqual } from "./tokens";
@@ -234,6 +235,7 @@ export class SkiGroup extends DurableObject<Env> {
     );
     await this.ctx.storage.setAlarm(expires);
     this.broadcast({ type: "created" });
+    await noteCounter(this.env, "created");
     return {
       group_token: groupToken,
       member_token: memberToken,
@@ -244,8 +246,9 @@ export class SkiGroup extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
-    // 24h self-delete: wipe all storage. No data kept.
+    // 24h self-delete: wipe all storage. No group data kept.
     await this.wipe("expired");
+    await noteCounter(this.env, "expired");
   }
 
   async info(memberToken: string): Promise<GroupInfo> {
@@ -504,6 +507,7 @@ export class SkiGroup extends DurableObject<Env> {
     this.broadcast({ type: "left", member_id: member.id });
     if (remaining <= 0) {
       await this.wipe("deleted", { member_id: member.id, name: member.display_name });
+      await noteCounter(this.env, "deleted");
       return { left: true, group_deleted: true, deleted_by: { member_id: member.id, name: member.display_name } };
     }
     return { left: true, group_deleted: false };
@@ -513,6 +517,7 @@ export class SkiGroup extends DurableObject<Env> {
     const member = await this.authMember(memberToken);
     const deletedBy = { member_id: member.id, name: member.display_name };
     await this.wipe("deleted", deletedBy);
+    await noteCounter(this.env, "deleted");
     return { deleted: true, deleted_by: deletedBy };
   }
 

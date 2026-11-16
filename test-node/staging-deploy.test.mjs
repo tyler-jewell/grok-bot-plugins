@@ -79,7 +79,7 @@ describe("deploy record helpers", () => {
   it("prints the last staging migration tag", () => {
     const result = run("scripts/last-migration-tag.mjs", []);
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("v1");
+    expect(result.stdout.trim()).toBe("v2");
   });
 
   it("writes a record with sha, version id, and migration tag only", () => {

@@ -1,3 +1,4 @@
+import { COUNTER_OBJECT_NAME, DailyCounters, limiterCounter, noteCounter, statusCounter } from "./counters";
 import { GroupFullError, GroupGoneError, GroupNotFoundError, SkiGroup, UnauthorizedError, unwrapDomain, type HeartbeatIn } from "./group";
 import { bearer, errorResponse, json, publicBase, queryHasMemberToken, queryTokenRejected, securityHeaders } from "./errors";
 import { runHealthcheck } from "./health";
@@ -6,7 +7,7 @@ import { checkLimit, clientIp } from "./rate-limit";
 import { randomToken } from "./tokens";
 import { landingDocument, verifyTurnstile, type Siteverify } from "./turnstile";
 
-export { SkiGroup };
+export { DailyCounters, SkiGroup };
 
 function stub(env: Env, groupToken: string) {
   return env.GROUP.get(env.GROUP.idFromName(groupToken));
@@ -15,6 +16,7 @@ function stub(env: Env, groupToken: string) {
 async function limited(request: Request, env: Env, name: Parameters<typeof checkLimit>[2]): Promise<Response | null> {
   const rl = await checkLimit(request, env, name);
   if (rl.ok) return null;
+  await noteCounter(env, limiterCounter(name));
   return json({ error: "rate limited" }, 429, { "retry-after": String(rl.retryAfterSec) });
 }
 
@@ -35,6 +37,13 @@ export type RequestDeps = {
 };
 
 export async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, deps: RequestDeps = {}): Promise<Response> {
+  const res = await routeRequest(request, env, ctx, deps);
+  const counted = statusCounter(res.status);
+  if (counted !== null) await noteCounter(env, counted);
+  return res;
+}
+
+async function routeRequest(request: Request, env: Env, ctx: ExecutionContext, deps: RequestDeps = {}): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -47,6 +56,11 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
       if (path === "/health") {
         const report = await runHealthcheck(env, request);
         return withSecurity(json(report, report.ok ? 200 : 503));
+      }
+
+      if (path === "/counters" && request.method === "GET") {
+        const snapshot = await env.COUNTERS.get(env.COUNTERS.idFromName(COUNTER_OBJECT_NAME)).snapshot();
+        return withSecurity(json(snapshot));
       }
 
       if (path === "/api/groups" && request.method === "POST") {
