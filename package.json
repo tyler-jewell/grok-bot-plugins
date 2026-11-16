@@ -6,7 +6,8 @@
     "dev": "wrangler dev",
     "types": "wrangler types",
     "check": "node scripts/embed-skills.mjs --check && wrangler types && tsc --noEmit",
-    "test": "vitest run",
+    "build": "wrangler deploy --dry-run --outdir dist --var GIT_SHA:${GITHUB_SHA:-local}",
+    "test": "vitest run && vitest run -c vitest.node.config.ts",
     "test:watch": "vitest",
     "embed-skills": "node scripts/embed-skills.mjs --write"
   },
