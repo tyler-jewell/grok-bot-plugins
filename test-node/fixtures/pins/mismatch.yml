@@ -1,0 +1,5 @@
+name: mismatch
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@2222222222222222222222222222222222222222 # v7.0.1

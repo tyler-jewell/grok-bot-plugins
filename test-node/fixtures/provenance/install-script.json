@@ -1,0 +1,21 @@
+{
+  "name": "fixture",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "fixture"
+    },
+    "node_modules/left-pad": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-1.0.0.tgz",
+      "integrity": "sha512-base"
+    },
+    "node_modules/evil": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/evil/-/evil-1.0.0.tgz",
+      "integrity": "sha512-evil",
+      "hasInstallScript": true
+    }
+  }
+}
