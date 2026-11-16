@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-13",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
   "upload_source_maps": true,
   "observability": {
@@ -18,15 +18,15 @@
     "run_worker_first": true
   },
   "vars": {
-    "PUBLIC_BASE_URL": "https://skiherd.jewell-labs.com",
     "GROUP_TTL_MS": "86400000",
     "MAX_GROUP_MEMBERS": "10",
     "CREATE_GROUP_PER_IP_PER_HOUR": "5",
+    "JOIN_PER_IP_PER_HOUR": "20",
+    "INVITE_PER_IP_PER_HOUR": "20",
+    "HEARTBEAT_PER_IP_PER_HOUR": "120",
+    "MAX_HEARTBEATS_PER_GROUP": "20000",
     "GIT_SHA": "local"
   },
-  "routes": [
-    { "pattern": "skiherd.jewell-labs.com", "custom_domain": true }
-  ],
   "durable_objects": {
     "bindings": [
       { "name": "GROUP", "class_name": "SkiGroup" }
@@ -34,5 +34,34 @@
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SkiGroup"] }
-  ]
+  ],
+  // No top-level route or PUBLIC_BASE_URL. Production hostname is rendered, not committed.
+  "env": {
+    "staging": {
+      "name": "skiherd-groups-staging",
+      "workers_dev": false,
+      "routes": [
+        { "pattern": "skiherd-groups.jewell-labs.com", "custom_domain": true }
+      ],
+      "vars": {
+        "PUBLIC_BASE_URL": "https://skiherd-groups.jewell-labs.com",
+        "GROUP_TTL_MS": "86400000",
+        "MAX_GROUP_MEMBERS": "10",
+        "CREATE_GROUP_PER_IP_PER_HOUR": "5",
+        "JOIN_PER_IP_PER_HOUR": "20",
+        "INVITE_PER_IP_PER_HOUR": "20",
+        "HEARTBEAT_PER_IP_PER_HOUR": "120",
+        "MAX_HEARTBEATS_PER_GROUP": "20000",
+        "GIT_SHA": "local"
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "GROUP", "class_name": "SkiGroup" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["SkiGroup"] }
+      ]
+    }
+  }
 }
