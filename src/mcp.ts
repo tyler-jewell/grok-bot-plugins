@@ -9,7 +9,7 @@ import {
   type HeartbeatIn,
 } from "./group";
 import { runHealthcheck } from "./health";
-import { clientIp, hashIp, rateLimit } from "./rate-limit";
+import { checkLimit } from "./rate-limit";
 import { MCP_INSTRUCTIONS, SKILL_NAMES, SKILLS, type SkillName } from "./skills.generated";
 import { randomToken } from "./tokens";
 
@@ -38,6 +38,8 @@ function toolError(err: unknown) {
     code = "not_found";
   } else if (err instanceof UnauthorizedError || name === "UnauthorizedError" || message === "unauthorized" || message.startsWith("invite") || message.includes("only the creator")) {
     code = "unauthorized";
+  } else if (message.startsWith("rate limited")) {
+    code = "rate_limited";
   } else if (err instanceof GroupFullError || name === "GroupFullError" || message.includes("group is full")) {
     code = "full";
   }
@@ -136,9 +138,7 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ host_name }) => {
           try {
-            const ip = clientIp(request);
-            const limit = Number(env.CREATE_GROUP_PER_IP_PER_HOUR ?? 5);
-            const rl = await rateLimit(caches.default, `create:${await hashIp(ip)}`, limit, 60 * 60 * 1000);
+            const rl = await checkLimit(request, env, "create");
             if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
             const groupToken = randomToken(32);
             const created = await stub(env, groupToken).create(host_name);
@@ -167,6 +167,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token, ttl_ms, max_uses }) => {
           try {
+            const rl = await checkLimit(request, env, "invite");
+            if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
             const inv = await stub(env, group_token).createInvite(member_token, { ttl_ms, max_uses });
             return toolText({ ...inv, ...urls(env, group_token, { inviteToken: inv.invite_token }) });
           } catch (err) {
@@ -187,6 +189,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, invite_token, display_name }) => {
           try {
+            const rl = await checkLimit(request, env, "join");
+            if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
             const joined = await stub(env, group_token).join(invite_token, display_name);
             return toolText({ ...joined, group_token, ...urls(env, group_token, { memberToken: joined.member_token }) });
           } catch (err) {
@@ -228,6 +232,8 @@ export function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pr
         },
         async ({ group_token, member_token, heartbeats }) => {
           try {
+            const rl = await checkLimit(request, env, "hb");
+            if (!rl.ok) return toolError(new Error(`rate limited, retry in ${rl.retryAfterSec}s`));
             const cleaned: HeartbeatIn[] = heartbeats.map((h) => ({
               ...h,
               lift_or_trail: h.lift_or_trail || null,

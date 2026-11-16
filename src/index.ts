@@ -2,7 +2,7 @@ import { GroupFullError, GroupGoneError, GroupNotFoundError, SkiGroup, Unauthori
 import { bearer, errorResponse, json, publicBase, queryHasMemberToken, queryTokenRejected, securityHeaders } from "./errors";
 import { runHealthcheck } from "./health";
 import { handleMcp } from "./mcp";
-import { clientIp, hashIp, rateLimit } from "./rate-limit";
+import { checkLimit } from "./rate-limit";
 import { randomToken } from "./tokens";
 
 export { SkiGroup };
@@ -11,9 +11,8 @@ function stub(env: Env, groupToken: string) {
   return env.GROUP.get(env.GROUP.idFromName(groupToken));
 }
 
-async function limited(request: Request, key: string, limit: number, windowMs: number): Promise<Response | null> {
-  const ip = await hashIp(clientIp(request));
-  const rl = await rateLimit(caches.default, `${key}:${ip}`, limit, windowMs);
+async function limited(request: Request, env: Env, name: Parameters<typeof checkLimit>[2]): Promise<Response | null> {
+  const rl = await checkLimit(request, env, name);
   if (rl.ok) return null;
   return json({ error: "rate limited" }, 429, { "retry-after": String(rl.retryAfterSec) });
 }
@@ -44,7 +43,7 @@ export default {
       }
 
       if (path === "/api/groups" && request.method === "POST") {
-        const blocked = await limited(request, "create", Number(env.CREATE_GROUP_PER_IP_PER_HOUR ?? 5), 60 * 60 * 1000);
+        const blocked = await limited(request, env, "create");
         if (blocked) return withSecurity(blocked);
         const body = (await request.json().catch(() => ({}))) as { host_name?: string };
         const hostName = (body.host_name ?? "Host").slice(0, 40);
@@ -69,6 +68,8 @@ export default {
         const group = stub(env, groupToken);
 
         if (action === "invites" && request.method === "POST") {
+          const blocked = await limited(request, env, "invite");
+          if (blocked) return withSecurity(blocked);
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));
           const body = (await request.json().catch(() => ({}))) as { ttl_ms?: number; max_uses?: number };
@@ -83,7 +84,7 @@ export default {
         }
 
         if (action === "join" && request.method === "POST") {
-          const blocked = await limited(request, "join", 20, 60 * 60 * 1000);
+          const blocked = await limited(request, env, "join");
           if (blocked) return withSecurity(blocked);
           const body = (await request.json().catch(() => ({}))) as { invite_token?: string; display_name?: string };
           if (!body.invite_token) return withSecurity(json({ error: "invite_token required" }, 400));
@@ -93,7 +94,7 @@ export default {
         }
 
         if (action === "heartbeats" && request.method === "POST") {
-          const blocked = await limited(request, "hb", 120, 60 * 60 * 1000);
+          const blocked = await limited(request, env, "hb");
           if (blocked) return withSecurity(blocked);
           const token = bearer(request);
           if (!token) return withSecurity(json({ error: "unauthorized" }, 401));

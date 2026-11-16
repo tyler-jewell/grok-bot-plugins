@@ -46,6 +46,19 @@ The MCP endpoint is `/mcp`. Tools that act on a group take `group_token` and `me
 | `leave_group` | Remove the member and their heartbeats; the last member leaving deletes the group. | `group_token`, `member_token` |
 | `delete_group` | Delete the group now and wipe its storage. Any current member can do this. | `group_token`, `member_token` |
 
+## Rate limits and caps
+
+Per client IP (from `CF-Connecting-IP`, normalised; `X-Forwarded-For` is ignored when it is present), per hour. HTTP and MCP share one bucket per action. Past the limit HTTP returns 429 with `retry-after`, and MCP returns an `isError` tool result with `error: "rate_limited"`. Override any default with the Worker var shown (invalid or below 1 falls back to the default).
+
+| Action | Default | Var |
+| --- | --- | --- |
+| create group (HTTP and MCP) | 5 | `CREATE_GROUP_PER_IP_PER_HOUR` |
+| join (HTTP and MCP) | 20 | `JOIN_PER_IP_PER_HOUR` |
+| create invite (HTTP and MCP) | 20 | `INVITE_PER_IP_PER_HOUR` |
+| post heartbeats (HTTP and MCP) | 120 | `HEARTBEAT_PER_IP_PER_HOUR` |
+
+Each group stores at most `MAX_HEARTBEATS_PER_GROUP` heartbeat rows (default 20000, about 2000 fixes for each of 10 members over the 24-hour life). Past the cap new points are dropped, not stored; the response reports `dropped_over_cap`. Earlier points are kept.
+
 ## HTTP API
 
 Auth `Bearer` means `Authorization: Bearer <member token>`. Member tokens are rejected in query strings. `:id` is the group token.
@@ -57,7 +70,7 @@ Auth `Bearer` means `Authorization: Bearer <member token>`. Member tokens are re
 | POST | `/api/groups` | none (rate limited per IP) |
 | GET | `/api/groups/:id` | Bearer |
 | DELETE | `/api/groups/:id` | Bearer |
-| POST | `/api/groups/:id/invites` | Bearer |
+| POST | `/api/groups/:id/invites` | Bearer (rate limited) |
 | POST | `/api/groups/:id/join` | none (invite token in body; rate limited) |
 | POST | `/api/groups/:id/heartbeats` | Bearer (rate limited) |
 | GET | `/api/groups/:id/map` | Bearer |
