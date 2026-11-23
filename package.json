@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
-    "@cloudflare/vitest-plugin": "^1.8.2",
+    "@cloudflare/vitest-plugin": "^1.9.0",
     "@playwright/test": "^1.65.1",
     "@types/node": "^26.6.6",
     "axe-core": "^4.14.0",
